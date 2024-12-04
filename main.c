@@ -8,12 +8,10 @@
 
 // Global Variable
 char input[100];
-
-// Struct to store product info
-typedef struct {
+struct OrderList {
     char name[50];
     int quantity;
-} OrderList;
+};
 
 // Function to split input by space and return an array of strings (tokens)
 char** get_slices_input(char *inputstr, int *num_tokens) {
@@ -52,16 +50,15 @@ char** get_slices_input(char *inputstr, int *num_tokens) {
 }
 
 // Function to get user input
-void get_user_input(char *Username, int *num_products, int userId) {
+void get_user_input(char *Username, int *usernumber, float *priceThreshold, struct OrderList *orderlist) {
     printf("Username: ");
     scanf("%s", Username);
     getchar();  // Clear the newline character left by scanf
-
-    printf("OrderList%d: \n", userId - 1);
-
+    printf("OrderList: \n");
     char item[20];
     int number;
     int num_tokens = 0;
+    int count = 0;
 
     // Read input until an empty line is entered
     while (1) {
@@ -69,21 +66,34 @@ void get_user_input(char *Username, int *num_products, int userId) {
 
         // If the line is empty, break out of the loop
         if (strcmp(input, "\n") == 0) {
+            printf("Price threshold:");
+
+            fgets(input, sizeof(input), stdin);
+            if (strcmp(input, "\n") == 0) {
+                break;
+            }
+            *priceThreshold = strtof(input, NULL);
             break;
         }
 
         // Get the tokens from the input
         char **tokens = get_slices_input(input, &num_tokens);
 
-        char *combinedstr = strcpy(item , tokens[0]);
-        for (int i = 1; i < num_tokens - 1; i++)
-        {
-            strcat(combinedstr , " "); 
-            strcat(combinedstr , tokens[i]); 
+        char *combinedstr = strcpy(item, tokens[0]);
+        for (int i = 1; i < num_tokens - 1; i++) {
+            strcat(combinedstr, " "); 
+            strcat(combinedstr, tokens[i]); 
         }
-        
+
         number = atoi(tokens[num_tokens - 1]);
-        printf("Item:%s, Quantity: %d\n", combinedstr, number);
+        printf("Item: %s, Quantity: %d\n", combinedstr, number);
+
+        // Use count to track the index for orderlist
+        orderlist[count].quantity = number;
+        strncpy(orderlist[count].name, combinedstr, sizeof(orderlist[count].name) - 1);
+        orderlist[count].name[sizeof(orderlist[count].name) - 1] = '\0';  // Ensure null-termination
+
+        count++;  // Increment count for the next order
 
         // Free the allocated memory for tokens
         for (int i = 0; i < num_tokens; i++) {
@@ -91,21 +101,31 @@ void get_user_input(char *Username, int *num_products, int userId) {
         }
         free(tokens);
     }
+
+    *usernumber = count;
 }
 
 // Main function
 int main() {
     // Declare variables
-    int userId = 1;
-    int num_products;
+    int usernumber = 0;
     char Username[50];
-    float price_threshold;
+    float priceThreshold = -1;
+    struct OrderList orderlist[100];
 
     // Call function to get user input
-    get_user_input(Username, &num_products, userId);
+    get_user_input(Username, &usernumber, &priceThreshold, orderlist);
 
     // After gathering input, you can continue further tasks
     printf("User Input Completed!\n");
+    printf("Number of Order: %d\n", usernumber);
+    printf("Price threshold: %lf\n", priceThreshold);
+
+    for (int i = 0; i < usernumber; i++) {
+        printf("Name: %s, Quantity: %d\n", orderlist[i].name, orderlist[i].quantity);
+    }
+
+    // Create Thread (if needed)
 
     return 0;
 }
