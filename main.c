@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/wait.h>  // Added this header to use 'wait()'
+#include <signal.h>
+#include <inttypes.h>
+
 
 #define MAX_PRODUCTS 100
 #ifndef DT_REG
@@ -19,6 +22,7 @@ struct OrderList {
 };
 struct OrderList orderlist[100];
 
+// Prototype
 char** get_slices_input(char *inputstr, int *num_tokens , char *splitter);
 void get_user_input(char *Username, int *usernumber, float *priceThreshold, struct OrderList *orderlist);
 void process_all_stores();
@@ -35,7 +39,8 @@ int main() {
     char Username[50];
     float priceThreshold = -1;
     
-    // // Call function to get user input
+    // Call function to get user input
+    // while:
     get_user_input(Username, &usernumber, &priceThreshold, orderlist);
 
     // After gathering input, you can continue further tasks
@@ -200,7 +205,7 @@ void* process_file(void* arg) {
     }
     else if (compareOrderName(file, orderlist)) {
         printf("Name matches!\n");
-        printf("Processinasdasbjacvhg file: %s\n", file_name);
+        printf("Processing file: %s\n", file_name);
     } else {
         // printf("Name does not match\n");
         fclose(file); 
@@ -208,7 +213,7 @@ void* process_file(void* arg) {
     }
 
     fclose(file);
-    return NULL;
+    return 0;
 }
 
 // Function to handle a category (create threads for each file)
@@ -257,8 +262,12 @@ void* process_category(void* arg) {
             // printf("entry->d_name %s\n", entry->d_name);
             // printf("strcat(new_category, entry->d_name) %s\n\n",strcat(new_category, entry->d_name));
             // printf("new_category %s\n", strcat(new_category, entry->d_name));
-            pthread_create(&threads[thread_index], NULL, process_file, (void*) strcat(new_category, entry->d_name));
+            int x = pthread_create(&threads[thread_index], NULL, process_file, (void*) strcat(new_category, entry->d_name));
             // printf("tedad threads = %d\n", thread_index);
+            // if(x != 1)
+            //     pthread_join(threads[thread_index], NULL);
+            // else
+            //     printf("x == %d", x);
             thread_index++;
         }
     }
@@ -278,28 +287,35 @@ void* process_store(void* arg) {
     char category_paths[8][100] = {  // Adjusted the size to 8
         "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
     };
-
     pid_t category_pid;
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+               perror("signal");
+               exit(EXIT_FAILURE);
+           }
+
     for (int i = 0; i < 8; i++) {
         char category_path[200];
         snprintf(category_path, sizeof(category_path), "%s/%s", store_path, category_paths[i]);
 
-        // Create a process for each category
+        // snprintf(store_path, sizeof(store_path), "./Dataset/%s", ()arg);
+
+        // Create a process for each store
         category_pid = fork();
-        if (category_pid == 0) {
-            // Child process handles category
-            process_category((void*) category_path);
-            exit(0);  // Exit after processing the category
-        } else if (category_pid < 0) {
-            perror("Fork failed for category");
-        }
+        switch (category_pid) {
+           case -1:
+                perror("fork");
+                exit(EXIT_FAILURE);
+           case 0:
+                process_category((void*) category_path);
+                puts("Child exiting.");
+                exit(EXIT_SUCCESS);
+           default:
+                printf("Child is PID %jd\n", (intmax_t) category_pid);
+                puts("Parent exiting.");
+                // exit(EXIT_SUCCESS);
+                break;
+           }
     }
-
-    // Wait for all category processes to finish
-    for (int i = 0; i < 8; i++) {
-        wait(NULL);
-    }
-
     return NULL;
 }
 
@@ -308,19 +324,30 @@ void process_all_stores() {
     char store_paths[3][100] = {"Store1", "Store2", "Store3"};
     
     pid_t store_pid;
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+               perror("signal");
+               exit(EXIT_FAILURE);
+           }
     for (int i = 0; i < 3; i++) {
         char store_path[200];
         snprintf(store_path, sizeof(store_path), "./Dataset/%s", store_paths[i]);
 
         // Create a process for each store
         store_pid = fork();
-        if (store_pid == 0) {
-            // Child process handles store
-            process_store((void*) store_path);
-            exit(0);  // Exit after processing the store
-        } else if (store_pid < 0) {
-            perror("Fork failed for store");
-        }
+        switch (store_pid) {
+           case -1:
+                perror("fork");
+                exit(EXIT_FAILURE);
+           case 0:
+                process_store((void*) store_path);
+                puts("Child exiting.");
+                exit(EXIT_SUCCESS);
+           default:
+                printf("Child is PID %jd\n", (intmax_t) store_pid);
+                puts("Parent exiting.");
+                // exit(EXIT_SUCCESS);
+                break;
+           }
     }
 
     // Wait for all store processes to finish
