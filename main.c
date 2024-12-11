@@ -8,11 +8,16 @@
 #include <signal.h>
 #include <inttypes.h>
 
-
 #define MAX_PRODUCTS 100
 #ifndef DT_REG
     #define DT_REG 8
 #endif
+#ifndef DT_DIR
+    #define DT_DIR 3
+#endif
+#define NORMAL_COLOR  "\x1B[0m"
+#define GREEN  "\x1B[32m"
+#define BLUE  "\x1B[34m"
 
 // Global Variable
 char input[100];
@@ -40,7 +45,6 @@ int main() {
     float priceThreshold = -1;
     
     // Call function to get user input
-    // while:
     get_user_input(Username, &usernumber, &priceThreshold, orderlist);
 
     // After gathering input, you can continue further tasks
@@ -52,8 +56,7 @@ int main() {
         printf("Name: %s, Quantity: %d\n", orderlist[i].name, orderlist[i].quantity);
     }
 
-    // Create Thread (if needed)
-    // Create Terminal
+    // Process all stores
     process_all_stores();
     return 0;
 }
@@ -79,10 +82,11 @@ char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
 
     // Loop through all tokens and store them in the array
     while (token != NULL) {
-        tokens[*num_tokens] = strdup(token);
+        tokens[*num_tokens] = strdup(token);  // Allocate memory for each token
         if (tokens[*num_tokens] == NULL) {
             perror("Failed to duplicate token");
             free(str);
+            free(tokens);  // Free the allocated memory for tokens
             return NULL;
         }
         (*num_tokens)++;
@@ -90,13 +94,11 @@ char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
     }
 
     free(str);  // Free the duplicated input string
-
-    return tokens;
+    return tokens;  // Don't free tokens here; return them to the caller
 }
 
 // Function to split input by a custom delimiter and return a limited number of slices
 char** get_slices_input_dataset(char *inputstr, int num_slices, char *splitter) {
-    // Duplicate the input string to prevent modifying the original string
     char *str = strdup(inputstr); 
     if (str == NULL) {
         perror("Failed to duplicate input string");
@@ -131,9 +133,7 @@ char** get_slices_input_dataset(char *inputstr, int num_slices, char *splitter) 
         num_slices = token_count;
     }
 
-    // Clean up and return the result
     free(str);  // Free the duplicated input string
-
     return tokens;
 }
 
@@ -154,8 +154,7 @@ void get_user_input(char *Username, int *usernumber, float *priceThreshold, stru
 
         // If the line is empty, break out of the loop
         if (strcmp(input, "\n") == 0) {
-            printf("Price threshold:");
-
+            printf("Price threshold: ");
             fgets(input, sizeof(input), stdin);
             if (strcmp(input, "\n") == 0) {
                 break;
@@ -176,7 +175,7 @@ void get_user_input(char *Username, int *usernumber, float *priceThreshold, stru
         number = atoi(tokens[num_tokens - 1]);
         printf("Item: %s, Quantity: %d\n", combinedstr, number);
 
-        // Use count to track the index for orderlist
+        // Store the order details
         orderlist[count].quantity = number;
         strncpy(orderlist[count].name, combinedstr, sizeof(orderlist[count].name) - 1);
         orderlist[count].name[sizeof(orderlist[count].name) - 1] = '\0';  // Ensure null-termination
@@ -193,85 +192,87 @@ void get_user_input(char *Username, int *usernumber, float *priceThreshold, stru
     *usernumber = count;
 }
 
-
+// Function to handle file processing
 void* process_file(void* arg) {
     char* file_name = (char*) arg;
-
-    // printf("Processinasdasbjacvhg file: %s\n", file_name);
     FILE *file = fopen(file_name, "r");
     if (file == NULL) {
         printf("Error opening file\n");
         pthread_exit(NULL);
-    }
-    else if (compareOrderName(file, orderlist)) {
-        printf("Name matches!\n");
-        printf("Processing file: %s\n", file_name);
     } else {
-        // printf("Name does not match\n");
-        fclose(file); 
-        pthread_exit(NULL);
-    }
+        char line[256];
+        char name[100];
 
-    fclose(file);
+        while (fgets(line, sizeof(line), file)) {
+            if (strncmp(line, "Name:", 5) == 0) {
+                // Skip "Name: " (5 characters), and store the actual product name
+                strtok(line, "\n");
+                strcpy(name, line + 6);  // Copy the name part after "Name: "
+                break;  // Exit the loop after reading the name
+            }
+        }
+        
+        fclose(file);
+
+        // Compare the name from the file with orderlist[i].name
+        for (int i = 0; i < sizeof(orderlist)/sizeof(orderlist[0]); i++) {
+            if (strcmp(name, orderlist[i].name) == 0) {
+                printf("Match found at: %s\n", file_name);
+                // Perform additional logic if necessary
+                break;
+            }
+        }
+    }
     return 0;
 }
 
-// Function to handle a category (create threads for each file)
+// Function to process files in each category
 void* process_category(void* arg) {
     char* category_path = (char*) arg;
-    DIR* dir = opendir(category_path);
-    if (dir == NULL) {
+    DIR * d = opendir(category_path);
+    if (d == NULL) {
         perror("Failed to open category directory");
         return NULL;
     }
-
-    struct dirent* entry;
-    int file_count = 0;
-    
+    struct dirent* dir;
+    int file_count = 0;    
     // Count the number of files in the category
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {  // Regular file
+    while ((dir = readdir(d)) != NULL) {
+        if (dir->d_type == DT_REG) {  // Regular file
             file_count++;
         }
     }
-    closedir(dir);
+    closedir(d);
 
-    pthread_t threads[file_count];
-    dir = opendir(category_path);
     int thread_index = 0;
-
+    pthread_t threads[file_count];
+    d = opendir(category_path);
     // Create a thread for each file in the category
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {  // Regular file
-            // printf("Creating thread for file: %s\n", entry->d_name);
-            // In a real case, the thread function would process the file.
-            // printf("dir %s dname %s\n",category_path, entry->d_name);
-
-            char **tokens = get_slices_input_dataset(category_path, 4, "/");
-
-            char *new_category = tokens[0];
-            strcat(new_category, "/");
-            for (int i = 1; i < 4; i++) {
-                strcat(new_category, tokens[i]); 
-                strcat(new_category, "/");
+    while ((dir = readdir(d)) != NULL) {
+        if (dir-> d_type != DT_DIR) {  // Regular file
+            // Dynamically calculate the size for new_category
+            size_t new_category_size = strlen(category_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
+            char *file_path = malloc(new_category_size);
+            if (file_path == NULL) {
+                perror("Failed to allocate memory for new_category");
+                closedir(d);
+                return NULL;
             }
 
-            // get_slices_input(category_path, 0, "/");
-            
-            // printf("\nnew_category %s\n", new_category);
-            // printf("entry->d_name %s\n", entry->d_name);
-            // printf("strcat(new_category, entry->d_name) %s\n\n",strcat(new_category, entry->d_name));
-            // printf("new_category %s\n", strcat(new_category, entry->d_name));
-            int x = pthread_create(&threads[thread_index], NULL, process_file, (void*) strcat(new_category, entry->d_name));
-            // printf("tedad threads = %d\n", thread_index);
-            // if(x != 1)
-            //     pthread_join(threads[thread_index], NULL);
-            // else
-            //     printf("x == %d", x);
+            // Build the path safely using snprintf
+            snprintf(file_path, new_category_size, "%s/%s", category_path, dir->d_name);
+
+            // Create a new thread to process the file
+            int x = pthread_create(&threads[thread_index], NULL, process_file, (void*) file_path);
+            if (x != 0) {
+                perror("Error creating thread");
+                free(file_path);  // Clean up memory if thread creation fails
+            }
+
             thread_index++;
         }
     }
-    closedir(dir);
+    closedir(d);
 
     // Wait for all threads to finish
     for (int i = 0; i < file_count; i++) {
@@ -281,7 +282,6 @@ void* process_category(void* arg) {
     return NULL;
 }
 
-// Function to process a store (create a process for each category)
 void* process_store(void* arg) {
     char* store_path = (char*) arg;
     char category_paths[8][100] = {  // Adjusted the size to 8
@@ -307,19 +307,22 @@ void* process_store(void* arg) {
                 exit(EXIT_FAILURE);
            case 0:
                 process_category((void*) category_path);
-                puts("Child exiting.");
+                // puts("Child(category) exiting.");
                 exit(EXIT_SUCCESS);
            default:
-                printf("Child is PID %jd\n", (intmax_t) category_pid);
-                puts("Parent exiting.");
+                // printf("Child is PID %jd\n", (intmax_t) category_pid);
+                // puts("Parent exiting.");
                 // exit(EXIT_SUCCESS);
                 break;
            }
     }
+    // Wait for all store processes to finish
+    for (int i = 0; i < 3; i++) {
+        wait(NULL);
+    }
     return NULL;
 }
 
-// Function to process all stores (create a process for each store)
 void process_all_stores() {
     char store_paths[3][100] = {"Store1", "Store2", "Store3"};
     
@@ -335,16 +338,16 @@ void process_all_stores() {
         // Create a process for each store
         store_pid = fork();
         switch (store_pid) {
-           case -1:
+            case -1:
                 perror("fork");
                 exit(EXIT_FAILURE);
-           case 0:
+            case 0:
                 process_store((void*) store_path);
-                puts("Child exiting.");
+                // puts("Child (Store) exiting.");
                 exit(EXIT_SUCCESS);
-           default:
-                printf("Child is PID %jd\n", (intmax_t) store_pid);
-                puts("Parent exiting.");
+            default:
+                // printf("Child is PID %jd\n", (intmax_t) store_pid);
+                // puts("Parent exiting.");
                 // exit(EXIT_SUCCESS);
                 break;
            }
@@ -354,21 +357,5 @@ void process_all_stores() {
     for (int i = 0; i < 3; i++) {
         wait(NULL);
     }
-}
-
-int compareOrderName(FILE *file, struct OrderList *orderlist) {
-    char line[256];
-    char name[100];
-
-    while (fgets(line, sizeof(line), file)) {
-        if (sscanf(line, "Name: %99[^\n]", name) == 1) {
-            // Compare Name
-            if (strcmp(name, orderlist->name) == 0) {
-                return 1; // Match found
-            }
-        }
-    }
-
-    return 0; // No match
 }
 
