@@ -40,8 +40,8 @@ char** get_slices_input(char *inputstr, int *num_tokens , char *splitter);
 struct User get_user_details();
 void handle_all_stores();
 void* handle_store(void* arg);
-void* handle_category(void* arg);
-void* handle_file(void* arg);
+// void* handle_category(void* arg);
+// void* handle_file(void* arg);
 // char** get_slices_input_dataset(char *inputstr, int num_slices, char *splitter);
 
 // Main function
@@ -230,98 +230,98 @@ struct User get_user_details() {
 }
 
 // Function to handle file processing
-void* handle_file(void* arg) {
-    char* file_name = (char*) arg;
-    FILE *file = fopen(file_name, "r");
-    if (file == NULL) {
-        printf("Error opening file\n");
-        pthread_exit(NULL);
-    } else {
-        char line[256];
-        char name[100];
+// void* handle_file(void* arg) {
+//     char* file_name = (char*) arg;
+//     FILE *file = fopen(file_name, "r");
+//     if (file == NULL) {
+//         printf("Error opening file\n");
+//         pthread_exit(NULL);
+//     } else {
+//         char line[256];
+//         char name[100];
 
-        while (fgets(line, sizeof(line), file)) {
-            if (strncmp(line, "Name:", 5) == 0) {
-                // Skip "Name: " (5 characters), and store the actual product name
-                strtok(line, "\n");
-                strcpy(name, line + 6);  // Copy the name part after "Name: "
-                break;  // Exit the loop after reading the name
-            }
-        }
+//         while (fgets(line, sizeof(line), file)) {
+//             if (strncmp(line, "Name:", 5) == 0) {
+//                 // Skip "Name: " (5 characters), and store the actual product name
+//                 strtok(line, "\n");
+//                 strcpy(name, line + 6);  // Copy the name part after "Name: "
+//                 break;  // Exit the loop after reading the name
+//             }
+//         }
 
-        // Compare the name from the file with orderlist[i].name
-        for (int i = 0; i < sizeof(orderlist)/sizeof(orderlist[0]); i++) {
-            if (strcmp(name, orderlist[i].name) == 0) {
-                printf("Match found at: %s\n", file_name);
-                // check entity
-                // returning price * score appen to a global List
-                // 
-                break;
-            }
-        }
+//         // Compare the name from the file with orderlist[i].name
+//         for (int i = 0; i < sizeof(orderlist)/sizeof(orderlist[0]); i++) {
+//             if (strcmp(name, orderlist[i].name) == 0) {
+//                 printf("Match found at: %s\n", file_name);
+//                 // check entity
+//                 // returning price * score appen to a global List
+//                 // 
+//                 break;
+//             }
+//         }
 
-        fclose(file);
-    }
-    // Returning a List od useful things + TID
-    return 0;
-}
+//         fclose(file);
+//     }
+//     // Returning a List od useful things + TID
+//     return 0;
+// }
 
-// Function to process files in each category
-void* handle_category(void* arg) {
-    char* category_path = (char*) arg;
-    DIR * d = opendir(category_path);
-    if (d == NULL) {
-        perror("Failed to open category directory");
-        return NULL;
-    }
-    struct dirent* dir;
-    int file_count = 0;    
-    // Count the number of files in the category
-    while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_REG) {  // Regular file
-            file_count++;
-        }
-    }
-    closedir(d);
+// // Function to process files in each category
+// void* handle_category(void* arg) {
+//     char* category_path = (char*) arg;
+//     DIR * d = opendir(category_path);
+//     if (d == NULL) {
+//         perror("Failed to open category directory");
+//         return NULL;
+//     }
+//     struct dirent* dir;
+//     int file_count = 0;    
+//     // Count the number of files in the category
+//     while ((dir = readdir(d)) != NULL) {
+//         if (dir->d_type == DT_REG) {  // Regular file
+//             file_count++;
+//         }
+//     }
+//     closedir(d);
 
-    int thread_index = 0;
-    pthread_t threads[file_count];
-    d = opendir(category_path);
-    // Create a thread for each file in the category
-    while ((dir = readdir(d)) != NULL) {
-        if (dir-> d_type != DT_DIR) {  // Regular file
-            // Dynamically calculate the size for new_category
-            size_t new_category_size = strlen(category_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
-            char *file_path = malloc(new_category_size);
-            if (file_path == NULL) {
-                perror("Failed to allocate memory for new_category");
-                closedir(d);
-                return NULL;
-            }
+//     int thread_index = 0;
+//     pthread_t threads[file_count];
+//     d = opendir(category_path);
+//     // Create a thread for each file in the category
+//     while ((dir = readdir(d)) != NULL) {
+//         if (dir-> d_type != DT_DIR) {  // Regular file
+//             // Dynamically calculate the size for new_category
+//             size_t new_category_size = strlen(category_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
+//             char *file_path = malloc(new_category_size);
+//             if (file_path == NULL) {
+//                 perror("Failed to allocate memory for new_category");
+//                 closedir(d);
+//                 return NULL;
+//             }
 
-            // Build the path safely using snprintf
-            snprintf(file_path, new_category_size, "%s/%s", category_path, dir->d_name);
+//             // Build the path safely using snprintf
+//             snprintf(file_path, new_category_size, "%s/%s", category_path, dir->d_name);
 
-            // Create a new thread to process the file
-            int x = pthread_create(&threads[thread_index], NULL, handle_file, (void*) file_path);
-            if (x != 0) {
-                perror("Error creating thread");
-                free(file_path);  // Clean up memory if thread creation fails
-            }
+//             // Create a new thread to process the file
+//             int x = pthread_create(&threads[thread_index], NULL, handle_file, (void*) file_path);
+//             if (x != 0) {
+//                 perror("Error creating thread");
+//                 free(file_path);  // Clean up memory if thread creation fails
+//             }
 
-            thread_index++;
-        }
-    }
-    closedir(d);
+//             thread_index++;
+//         }
+//     }
+//     closedir(d);
 
-    // get many list of useful items from threads
-    // deciding which one to close and which ones to sleep
-    for (int i = 0; i < file_count; i++) {
-        pthread_join(threads[i], NULL);
-    }
-    // returning a list of useful things + CID
-    return NULL;
-}
+//     // get many list of useful items from threads
+//     // deciding which one to close and which ones to sleep
+//     for (int i = 0; i < file_count; i++) {
+//         pthread_join(threads[i], NULL);
+//     }
+//     // returning a list of useful things + CID
+//     return NULL;
+// }
 
 void* handle_store(void* arg) {
     char* store_path = (char*) arg;
@@ -329,6 +329,9 @@ void* handle_store(void* arg) {
         "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
     };
     pid_t category_pid;
+    pid_t store_pid = getpid();
+    pid_t parent_pid = getppid();  // Get parent PID for this store (the store's parent process)
+
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
                perror("signal");
                exit(EXIT_FAILURE);
@@ -343,16 +346,14 @@ void* handle_store(void* arg) {
         // Create a process for each store
         category_pid = fork();
         switch (category_pid) {
-           case -1:
+            case -1:
                 perror("fork");
                 exit(EXIT_FAILURE);
-           case 0:
-                handle_category((void*) category_path);
-                // puts("Child(category) exiting.");
+            case 0:
+                printf("PID %jd created child for %s PID: %jd\n",(intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
+                // handle_category((void*) category_path);
                 exit(EXIT_SUCCESS);
-           default:
-                // printf("Child is PID %jd\n", (intmax_t) category_pid);
-                // puts("Parent exiting.");
+            default:
                 // exit(EXIT_SUCCESS);
                 break;
            }
@@ -385,6 +386,7 @@ void handle_all_stores() {
         snprintf(store_path, sizeof(store_path), "./Dataset/%s", store_paths[i]);
 
         // Create a process for each store
+        pid_t parent_pid = getppid();
         store_pid = fork();
         switch (store_pid) {
             case -1:
@@ -392,11 +394,9 @@ void handle_all_stores() {
                 exit(EXIT_FAILURE);
             case 0:
                 handle_store((void*) store_path);
-                // puts("Child (Store) exiting.");
                 exit(EXIT_SUCCESS);
             default:
-                // printf("Child is PID %jd\n", (intmax_t) store_pid);
-                // puts("Parent exiting.");
+                printf("PID: %jd created child for Store%d PID:%jd\n", (intmax_t)parent_pid, i + 1, (intmax_t)store_pid);
                 // exit(EXIT_SUCCESS);
                 break;
            }
