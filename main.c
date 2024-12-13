@@ -9,6 +9,7 @@
 #include <inttypes.h>
 
 #define MAX_PRODUCTS 100
+#define MAX_PATH_LEN 512
 #ifndef DT_REG
     #define DT_REG 8
 #endif
@@ -22,37 +23,60 @@
 // Global Variable
 char input[100];
 
-// Define Order struct
 struct Order {
     char name[50];
     int quantity;
 };
 
-// Define User struct
 struct User {
-    char username[50];  // Allocate memory for username
-    struct Order orderlist[MAX_PRODUCTS];  // Use an array for the orderlist
+    char username[50];
+    struct Order orderlist[MAX_PRODUCTS];
     float priceThreshold;
+};
+
+struct Date {
+    int year;
+    int month;
+    int day;
+};
+
+struct Time {
+    int hour;
+    int minutes;
+    int seconds;
+};
+
+struct Product {
+    char name[100];
+    float price;
+    float score;
+    int entity;
+    float cost;  // cost is initialized to -1 later in the function, not in the struct definition
+    struct Date date;
+    struct Time time;
+};
+
+struct HandleArgs {
+    struct User* user;
+    char* file_path;
 };
 
 // Prototype
 char** get_slices_input(char *inputstr, int *num_tokens , char *splitter);
-struct User get_user_details();
-void handle_all_stores();
-void* handle_store(void* arg);
-// void* handle_category(void* arg);
-// void* handle_file(void* arg);
-// char** get_slices_input_dataset(char *inputstr, int num_slices, char *splitter);
+void get_user_details(struct User* user);
+void handle_all_stores(struct HandleArgs* args);
+void* handle_store(struct HandleArgs* args);
+void* handle_file(void* args);
 
 // Main function
 int main() {
+    struct User user = {0};  // Declare a global 'user' variable
     // do {
     // create process for user
-    struct User user = get_user_details();
+    get_user_details(&user);
 
     // After gathering input, you can continue further tasks
     printf("User Input Completed!\n");
-
     printf("\nOrder List:\n");
     for (int i = 0; i < MAX_PRODUCTS; i++) {
         if (user.orderlist[i].quantity == 0) {
@@ -61,46 +85,13 @@ int main() {
         }
         printf("Item: %s, Quantity: %d\n", user.orderlist[i].name, user.orderlist[i].quantity);
     }
-    handle_all_stores();
+    struct HandleArgs args;
+    args.user = &user;
+    args.file_path = "./Dataset";
+    handle_all_stores(&args);
     // } while(1);
     return 0;
 }
-
-// Function to split input by space and return an array of strings (tokens)
-// char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
-//     char *str = strdup(inputstr); 
-//     if (str == NULL) {
-//         perror("Failed to duplicate input string");
-//         return NULL;
-//     }
-
-//     // Allocate memory for the array of strings (tokens)
-//     char **tokens = malloc(MAX_PRODUCTS * sizeof(char*));
-//     if (tokens == NULL) {
-//         perror("Failed to allocate memory for tokens");
-//         free(str);
-//         return NULL;
-//     }
-
-//     *num_tokens = 0;  // Initialize token count
-//     char *token = strtok(str, splitter);  // Split by space
-
-//     // Loop through all tokens and store them in the array
-//     while (token != NULL) {
-//         tokens[*num_tokens] = strdup(token);  // Allocate memory for each token
-//         if (tokens[*num_tokens] == NULL) {
-//             perror("Failed to duplicate token");
-//             free(str);
-//             free(tokens);  // Free the allocated memory for tokens
-//             return NULL;
-//         }
-//         (*num_tokens)++;
-//         token = strtok(NULL, " ");
-//     }
-
-//     free(str);  // Free the duplicated input string
-//     return tokens;  // Don't free tokens here; return them to the caller
-// }
 
 char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
     char **result = malloc(10 * sizeof(char *));  // allocate for 10 tokens
@@ -115,56 +106,15 @@ char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
     return result;
 }
 
-// Function to split input by a custom delimiter and return a limited number of slices
-// char** get_slices_input_dataset(char *inputstr, int num_slices, char *splitter) {
-//     char *str = strdup(inputstr); 
-//     if (str == NULL) {
-//         perror("Failed to duplicate input string");
-//         return NULL;
-//     }
-
-//     // Allocate memory for the array of strings (tokens)
-//     char **tokens = malloc(MAX_PRODUCTS * sizeof(char*));
-//     if (tokens == NULL) {
-//         perror("Failed to allocate memory for tokens");
-//         free(str);
-//         return NULL;
-//     }
-
-//     int token_count = 0;  // Initialize token count
-//     char *token = strtok(str, splitter);
-
-//     // Loop through all tokens and store them in the array
-//     while (token != NULL && (num_slices == 0 || token_count < num_slices)) {
-//         tokens[token_count] = strdup(token);
-//         if (tokens[token_count] == NULL) {
-//             perror("Failed to duplicate token");
-//             free(str);
-//             return NULL;
-//         }
-//         token_count++;
-//         token = strtok(NULL, splitter);
-//     }
-
-//     // If num_slices is 0, split till the end
-//     if (num_slices == 0) {
-//         num_slices = token_count;
-//     }
-
-//     free(str);  // Free the duplicated input string
-//     return tokens;
-// }
-
 // Function to get user input
-struct User get_user_details() {
-    struct User user;
-    user.priceThreshold = -1.0;  // Initialize the priceThreshold
+void get_user_details(struct User* user) {
+    user->priceThreshold = -1.0;  // Initialize the priceThreshold
     int count = 0;
     
     // Ask for username
     printf("Username: ");
-    fgets(user.username, sizeof(user.username), stdin);
-    user.username[strcspn(user.username, "\n")] = 0; // Remove newline character
+    fgets(user->username, sizeof(user->username), stdin);
+    user->username[strcspn(user->username, "\n")] = 0; // Remove newline character
 
     printf("Order List:\n");
 
@@ -184,7 +134,7 @@ struct User get_user_details() {
             }
 
             // Convert input to float for priceThreshold
-            user.priceThreshold = strtof(input, NULL);
+            user->priceThreshold = strtof(input, NULL);
             break;
         }
 
@@ -198,8 +148,11 @@ struct User get_user_details() {
             continue;
         }
 
-        // Allocate the item name and store the order
         char *combinedstr = malloc(strlen(tokens[0]) + 1);
+        if (combinedstr == NULL) {
+            perror("Memory allocation failed for combinedstr");
+            exit(EXIT_FAILURE);
+        }
         strcpy(combinedstr, tokens[0]);
         for (int i = 1; i < num_tokens - 1; i++) {
             combinedstr = realloc(combinedstr, strlen(combinedstr) + strlen(tokens[i]) + 2);
@@ -212,9 +165,9 @@ struct User get_user_details() {
 
         // Store the order details in the orderlist
         if (count < MAX_PRODUCTS) {
-            strncpy(user.orderlist[count].name, combinedstr, sizeof(user.orderlist[count].name) - 1);
-            user.orderlist[count].name[sizeof(user.orderlist[count].name) - 1] = '\0';  // Ensure null-termination
-            user.orderlist[count].quantity = quantity;
+            strncpy(user->orderlist[count].name, combinedstr, sizeof(user->orderlist[count].name) - 1);
+            user->orderlist[count].name[sizeof(user->orderlist[count].name) - 1] = '\0';  // Ensure null-termination
+            user->orderlist[count].quantity = quantity;
             count++;
         }
 
@@ -225,112 +178,190 @@ struct User get_user_details() {
         }
         free(tokens);
     }
-
-    return user;
 }
 
 // Function to handle file processing
-// void* handle_file(void* arg) {
-//     char* file_name = (char*) arg;
-//     FILE *file = fopen(file_name, "r");
-//     if (file == NULL) {
-//         printf("Error opening file\n");
-//         pthread_exit(NULL);
-//     } else {
-//         char line[256];
-//         char name[100];
+void* handle_file(void* args_void) {
+    struct HandleArgs* args = (struct HandleArgs*)args_void;
+    // Cast the argument to the new struct type
+    struct User* user = args->user;      // Access user data
+    char* file_name = args->file_path;  // Access file path
+    
+    pid_t category_pid = getpid();
+    FILE *file = fopen(file_name, "r");
+    if (file == NULL) {
+        printf("Error opening file: %s\n", file_name);
+        pthread_exit(NULL);
+    } else {
+        char line[256];
+        struct Product product;
 
-//         while (fgets(line, sizeof(line), file)) {
-//             if (strncmp(line, "Name:", 5) == 0) {
-//                 // Skip "Name: " (5 characters), and store the actual product name
-//                 strtok(line, "\n");
-//                 strcpy(name, line + 6);  // Copy the name part after "Name: "
-//                 break;  // Exit the loop after reading the name
-//             }
-//         }
+        // Default values in case not all fields are found
+        memset(&product, 0, sizeof(struct Product));
 
-//         // Compare the name from the file with orderlist[i].name
-//         for (int i = 0; i < sizeof(orderlist)/sizeof(orderlist[0]); i++) {
-//             if (strcmp(name, orderlist[i].name) == 0) {
-//                 printf("Match found at: %s\n", file_name);
-//                 // check entity
-//                 // returning price * score appen to a global List
-//                 // 
-//                 break;
-//             }
-//         }
+        while (fgets(line, sizeof(line), file)) {
+            if (strncmp(line, "Name:", 5) == 0) {
+                strtok(line, "\n");
+                strcpy(product.name, line + 6);
+            } else if (strncmp(line, "Price:", 6) == 0) {
+                strtok(line, "\n");
+                product.price = atof(line + 7);
+            } else if (strncmp(line, "Score:", 6) == 0) {
+                strtok(line, "\n");
+                product.score = atof(line + 7);
+            } else if (strncmp(line, "Entity:", 7) == 0) {
+                strtok(line, "\n");
+                product.entity = atoi(line + 8);
+            } else if (strncmp(line, "Last Modified:", 14) == 0) {
+                int num_tokens = 0;
+                char **tokens = get_slices_input(line, &num_tokens, " ");
 
-//         fclose(file);
-//     }
-//     // Returning a List od useful things + TID
-//     return 0;
-// }
+                // Extract date and time
+                if (num_tokens >= 2) {
+                    // Split the date and time
+                    char *date = strdup(tokens[0]);
+                    char *time = strdup(tokens[1]);
 
-// // Function to process files in each category
-// void* handle_category(void* arg) {
-//     char* category_path = (char*) arg;
-//     DIR * d = opendir(category_path);
-//     if (d == NULL) {
-//         perror("Failed to open category directory");
-//         return NULL;
-//     }
-//     struct dirent* dir;
-//     int file_count = 0;    
-//     // Count the number of files in the category
-//     while ((dir = readdir(d)) != NULL) {
-//         if (dir->d_type == DT_REG) {  // Regular file
-//             file_count++;
-//         }
-//     }
-//     closedir(d);
+                    // Parse the date
+                    int date_tokens_count = 0;
+                    char **date_tokens = get_slices_input(date, &date_tokens_count, "-");
+                    if (date_tokens_count == 3) {
+                        product.date.year = atoi(date_tokens[0]);
+                        product.date.month = atoi(date_tokens[1]);
+                        product.date.day = atoi(date_tokens[2]);
+                    }
 
-//     int thread_index = 0;
-//     pthread_t threads[file_count];
-//     d = opendir(category_path);
-//     // Create a thread for each file in the category
-//     while ((dir = readdir(d)) != NULL) {
-//         if (dir-> d_type != DT_DIR) {  // Regular file
-//             // Dynamically calculate the size for new_category
-//             size_t new_category_size = strlen(category_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
-//             char *file_path = malloc(new_category_size);
-//             if (file_path == NULL) {
-//                 perror("Failed to allocate memory for new_category");
-//                 closedir(d);
-//                 return NULL;
-//             }
+                    // Parse the time
+                    int time_tokens_count = 0;
+                    char **time_tokens = get_slices_input(time, &time_tokens_count, ":");
+                    if (time_tokens_count == 3) {
+                        product.time.hour = atoi(time_tokens[0]);
+                        product.time.minutes = atoi(time_tokens[1]);
+                        product.time.seconds = atoi(time_tokens[2]);
+                    }
 
-//             // Build the path safely using snprintf
-//             snprintf(file_path, new_category_size, "%s/%s", category_path, dir->d_name);
+                    free(date);
+                    free(time);
+                    free(date_tokens);
+                    free(time_tokens);
+                }
 
-//             // Create a new thread to process the file
-//             int x = pthread_create(&threads[thread_index], NULL, handle_file, (void*) file_path);
-//             if (x != 0) {
-//                 perror("Error creating thread");
-//                 free(file_path);  // Clean up memory if thread creation fails
-//             }
+                // If the last modified is a number
+                product.cost = atof(line + 15);
+            }
+        }
 
-//             thread_index++;
-//         }
-//     }
-//     closedir(d);
+        // Debug: Print the user's orderlist to check if it's populated
+        printf("User's Order List:\n");
+        for (int i = 0; i < MAX_PRODUCTS; i++) {
+            if (user->orderlist[i].quantity > 0) {
+                printf("Item: %s, Quantity: %d\n", user->orderlist[i].name, user->orderlist[i].quantity);
+            }
+        }
+        
+        // Now compare the product name from the file with orderlist[i].name
+        // Loop through the user's orderlist to find a match
+        for (int i = 0; i < MAX_PRODUCTS; i++) {
+            if (strcmp(product.name, user->orderlist[i].name) == 0) {  // Using 'user->' to access fields of User struct
+                printf("Match found for %s\n", product.name);
 
-//     // get many list of useful items from threads
-//     // deciding which one to close and which ones to sleep
-//     for (int i = 0; i < file_count; i++) {
-//         pthread_join(threads[i], NULL);
-//     }
-//     // returning a list of useful things + CID
-//     return NULL;
-// }
+                // Update the order quantity based on the matching product
+                user->orderlist[i].quantity += 1;  // Or apply any other logic here
 
-void* handle_store(void* arg) {
-    char* store_path = (char*) arg;
-    char category_paths[8][100] = {  // Adjusted the size to 8
-        "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
+                // Print the product info (for debugging)
+                printf("Name : %s\n", product.name);
+                printf("Price : %lf\n", product.price);
+                printf("Score : %lf\n", product.score);
+                printf("Entity : %d\n", product.entity);
+                printf("Date : %d-%d-%d\n", product.date.year, product.date.month, product.date.day);
+                printf("Time : %d:%d:%d\n", product.time.hour, product.time.minutes, product.time.seconds);
+                printf("Cost : %lf\n", product.cost);
+                printf("-----------------------------------------\n");
+                break;  // If you only want to update the first match, break here
+            }
+        }
+
+        fclose(file);
+    }
+
+    return 0;
+}
+
+// Function to handle files in each category
+void* handle_category(struct HandleArgs* args) {
+    // char* category_path = (char*) arg;
+    DIR * d = opendir(args->file_path);
+    if (d == NULL) {
+        perror("Failed to open category directory");
+        return NULL;
+    }
+    struct dirent* dir;
+    int file_count = 0;    
+    // Count the number of files in the category
+    while ((dir = readdir(d)) != NULL) {
+        if (dir->d_type == DT_REG) {  // Regular file
+            file_count++;
+        }
+    }
+    closedir(d);
+
+    int thread_index = 0;
+    pthread_t threads[file_count];
+    d = opendir(args->file_path);
+    // Create a thread for each file in the category
+    while ((dir = readdir(d)) != NULL) {
+        if (dir->d_type != DT_DIR) {  // Regular file
+            // Dynamically calculate the size for new_category
+            size_t new_category_size = strlen(args->file_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
+            char *file_path = malloc(new_category_size);
+            if (file_path == NULL) {
+                perror("Failed to allocate memory for file_path");
+                closedir(d);
+                return NULL;
+            }
+
+            // Build the path safely using snprintf
+            snprintf(file_path, new_category_size, "%s/%s", args->file_path, dir->d_name);
+
+            // Create a struct to hold both user and file_path
+            struct HandleArgs* args = malloc(sizeof(struct HandleArgs));
+            if (args == NULL) {
+                perror("Failed to allocate memory for FileHandleArgs");
+                free(file_path);
+                closedir(d);
+                return NULL;
+            }
+            // Create a new thread to process the file
+            int x = pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, args);
+            if (x != 0) {
+                perror("Error creating thread");
+                free(args);
+                free(file_path);
+                closedir(d);
+                return NULL;
+            }
+
+            thread_index++;
+        }
+    }
+    closedir(d);
+
+    // Wait for all threads to finish
+    for (int i = 0; i < file_count; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    return NULL;
+}
+
+void* handle_store(struct HandleArgs* args) {
+    // char* store_path = (char*) args;
+    char category_paths[8][100] = {
+    "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
     };
+    char file_path[MAX_PATH_LEN];
     pid_t category_pid;
     pid_t store_pid = getpid();
-    pid_t parent_pid = getppid();  // Get parent PID for this store (the store's parent process)
 
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
                perror("signal");
@@ -338,9 +369,9 @@ void* handle_store(void* arg) {
            }
 
     for (int i = 0; i < 8; i++) {
-        char category_path[200];
-        snprintf(category_path, sizeof(category_path), "%s/%s", store_path, category_paths[i]);
-
+        // char category_path[200];
+        snprintf(file_path, MAX_PATH_LEN, "%s/%s", args->file_path, category_paths[i]);
+        // snprintf(args->file_path, sizeof(args->file_path), "%s/%s", args->file_path, category_paths[i]);
         // snprintf(store_path, sizeof(store_path), "./Dataset/%s", ()arg);
 
         // Create a process for each store
@@ -351,7 +382,7 @@ void* handle_store(void* arg) {
                 exit(EXIT_FAILURE);
             case 0:
                 printf("PID %jd created child for %s PID: %jd\n",(intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
-                // handle_category((void*) category_path);
+                handle_category(args);
                 exit(EXIT_SUCCESS);
             default:
                 // exit(EXIT_SUCCESS);
@@ -365,14 +396,16 @@ void* handle_store(void* arg) {
     return NULL;
 }
 
-void handle_all_stores() {
-    char store_paths[3][100] = {"Store1", "Store2", "Store3"};
-    
+void handle_all_stores(struct HandleArgs* args) {
     pid_t store_pid;
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
                perror("signal");
                exit(EXIT_FAILURE);
            }
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
     // if a thread finds a products
     /* 
         create 3 threads for
@@ -382,8 +415,8 @@ void handle_all_stores() {
         sleep all three threads
     */
     for (int i = 0; i < 3; i++) {
-        char store_path[200];
-        snprintf(store_path, sizeof(store_path), "./Dataset/%s", store_paths[i]);
+        args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
+        snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", args->file_path, i + 1);
 
         // Create a process for each store
         pid_t parent_pid = getppid();
@@ -393,7 +426,7 @@ void handle_all_stores() {
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
-                handle_store((void*) store_path);
+                handle_store(args);
                 exit(EXIT_SUCCESS);
             default:
                 printf("PID: %jd created child for Store%d PID:%jd\n", (intmax_t)parent_pid, i + 1, (intmax_t)store_pid);
