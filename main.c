@@ -289,7 +289,8 @@ void* handle_file(void* args_void) {
 
 // Function to handle files in each category
 void* handle_category(struct HandleArgs* args) {
-    // char* category_path = (char*) arg;
+    char* file_path = args->file_path;
+    printf("file_path in category : %s\n", args->file_path);
     DIR * d = opendir(args->file_path);
     if (d == NULL) {
         perror("Failed to open category directory");
@@ -310,27 +311,11 @@ void* handle_category(struct HandleArgs* args) {
     d = opendir(args->file_path);
     // Create a thread for each file in the category
     while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type != DT_DIR) {  // Regular file
-            // Dynamically calculate the size for new_category
-            size_t new_category_size = strlen(args->file_path) + strlen(dir->d_name) + 2;  // +2 for '/' and '\0'
-            char *file_path = malloc(new_category_size);
-            if (file_path == NULL) {
-                perror("Failed to allocate memory for file_path");
-                closedir(d);
-                return NULL;
-            }
+        if (dir->d_type != DT_DIR) {
+            args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
+            snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
+            // printf("args->file_path : %s\n" , args->file_path);
 
-            // Build the path safely using snprintf
-            snprintf(file_path, new_category_size, "%s/%s", args->file_path, dir->d_name);
-
-            // Create a struct to hold both user and file_path
-            struct HandleArgs* args = malloc(sizeof(struct HandleArgs));
-            if (args == NULL) {
-                perror("Failed to allocate memory for FileHandleArgs");
-                free(file_path);
-                closedir(d);
-                return NULL;
-            }
             // Create a new thread to process the file
             int x = pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, args);
             if (x != 0) {
@@ -355,7 +340,7 @@ void* handle_category(struct HandleArgs* args) {
 }
 
 void* handle_store(struct HandleArgs* args) {
-    // char* store_path = (char*) args;
+    char* store_path = (char*) args->file_path;
     char category_paths[8][100] = {
     "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
     };
@@ -369,11 +354,8 @@ void* handle_store(struct HandleArgs* args) {
            }
 
     for (int i = 0; i < 8; i++) {
-        // char category_path[200];
-        snprintf(file_path, MAX_PATH_LEN, "%s/%s", args->file_path, category_paths[i]);
-        // snprintf(args->file_path, sizeof(args->file_path), "%s/%s", args->file_path, category_paths[i]);
-        // snprintf(store_path, sizeof(store_path), "./Dataset/%s", ()arg);
-
+        args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
+        snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", store_path, category_paths[i]);
         // Create a process for each store
         category_pid = fork();
         switch (category_pid) {
@@ -397,6 +379,7 @@ void* handle_store(struct HandleArgs* args) {
 }
 
 void handle_all_stores(struct HandleArgs* args) {
+    char * parent_path = (char*)args->file_path;
     pid_t store_pid;
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
                perror("signal");
@@ -416,7 +399,7 @@ void handle_all_stores(struct HandleArgs* args) {
     */
     for (int i = 0; i < 3; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
-        snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", args->file_path, i + 1);
+        snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", parent_path, i + 1);
 
         // Create a process for each store
         pid_t parent_pid = getppid();
