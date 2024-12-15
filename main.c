@@ -7,6 +7,7 @@
 #include <sys/wait.h>  // Added this header to use 'wait()'
 #include <signal.h>
 #include <inttypes.h>
+#include <sys/syscall.h>   // For syscall and gettid
 
 #define MAX_PRODUCTS 100
 #define MAX_PATH_LEN 512
@@ -183,11 +184,8 @@ void get_user_details(struct User* user) {
 // Function to handle file processing
 void* handle_file(void* args_void) {
     struct HandleArgs* args = (struct HandleArgs*)args_void;
-    // Cast the argument to the new struct type
-    struct User* user = args->user;      // Access user data
-    char* file_name = args->file_path;  // Access file path
-    
-    pid_t category_pid = getpid();
+    struct User* user = args->user;
+    char* file_name = args->file_path;
     FILE *file = fopen(file_name, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", file_name);
@@ -213,49 +211,34 @@ void* handle_file(void* args_void) {
                 strtok(line, "\n");
                 product.entity = atoi(line + 8);
             } else if (strncmp(line, "Last Modified:", 14) == 0) {
-                int num_tokens = 0;
-                char **tokens = get_slices_input(line, &num_tokens, " ");
+                // Parse "Last Modified: 2024-11-23 18:50:11"
+                char *date_time_str = line + 15; // Skip "Last Modified: "
 
-                // Extract date and time
-                if (num_tokens >= 2) {
-                    // Split the date and time
-                    char *date = strdup(tokens[0]);
-                    char *time = strdup(tokens[1]);
+                // Split date and time
+                char *date_str = strtok(date_time_str, " ");
+                char *time_str = strtok(NULL, " ");
 
-                    // Parse the date
+                if (date_str && time_str) {
+                    // Parse the date (e.g., 2024-11-23)
                     int date_tokens_count = 0;
-                    char **date_tokens = get_slices_input(date, &date_tokens_count, "-");
+                    char **date_tokens = get_slices_input(date_str, &date_tokens_count, "-");
                     if (date_tokens_count == 3) {
                         product.date.year = atoi(date_tokens[0]);
                         product.date.month = atoi(date_tokens[1]);
                         product.date.day = atoi(date_tokens[2]);
                     }
+                    free(date_tokens);
 
-                    // Parse the time
+                    // Parse the time (e.g., 18:50:11)
                     int time_tokens_count = 0;
-                    char **time_tokens = get_slices_input(time, &time_tokens_count, ":");
+                    char **time_tokens = get_slices_input(time_str, &time_tokens_count, ":");
                     if (time_tokens_count == 3) {
                         product.time.hour = atoi(time_tokens[0]);
                         product.time.minutes = atoi(time_tokens[1]);
                         product.time.seconds = atoi(time_tokens[2]);
                     }
-
-                    free(date);
-                    free(time);
-                    free(date_tokens);
-                    free(time_tokens);
+                free(time_tokens);
                 }
-
-                // If the last modified is a number
-                product.cost = atof(line + 15);
-            }
-        }
-
-        // Debug: Print the user's orderlist to check if it's populated
-        printf("User's Order List:\n");
-        for (int i = 0; i < MAX_PRODUCTS; i++) {
-            if (user->orderlist[i].quantity > 0) {
-                printf("Item: %s, Quantity: %d\n", user->orderlist[i].name, user->orderlist[i].quantity);
             }
         }
         
@@ -277,6 +260,13 @@ void* handle_file(void* args_void) {
                 printf("Time : %d:%d:%d\n", product.time.hour, product.time.minutes, product.time.seconds);
                 printf("Cost : %lf\n", product.cost);
                 printf("-----------------------------------------\n");
+                // Debug: Print the user's orderlist to check if it's populated
+                printf("User's Order List:\n");
+                for (int i = 0; i < MAX_PRODUCTS; i++) {
+                    if (user->orderlist[i].quantity > 0) {
+                        printf("Item: %s, Quantity: %d\n", user->orderlist[i].name, user->orderlist[i].quantity);
+                    }
+                }
                 break;  // If you only want to update the first match, break here
             }
         }
@@ -290,7 +280,6 @@ void* handle_file(void* args_void) {
 // Function to handle files in each category
 void* handle_category(struct HandleArgs* args) {
     char* file_path = args->file_path;
-    printf("file_path in category : %s\n", args->file_path);
     DIR * d = opendir(args->file_path);
     if (d == NULL) {
         perror("Failed to open category directory");
@@ -308,6 +297,7 @@ void* handle_category(struct HandleArgs* args) {
 
     int thread_index = 0;
     pthread_t threads[file_count];
+    pid_t category_pid = getpid();
     d = opendir(args->file_path);
     // Create a thread for each file in the category
     while ((dir = readdir(d)) != NULL) {
@@ -315,7 +305,6 @@ void* handle_category(struct HandleArgs* args) {
             args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
             snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
             // printf("args->file_path : %s\n" , args->file_path);
-
             // Create a new thread to process the file
             int x = pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, args);
             if (x != 0) {
@@ -325,6 +314,15 @@ void* handle_category(struct HandleArgs* args) {
                 closedir(d);
                 return NULL;
             }
+            // Create a formatted file ID (e.g., 000001ID)
+            char formatted_file_id[13];  // Adjust size as needed for your formatting
+            snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", thread_index + 1);
+
+            // Print the output with the correct PID, formatted file ID, and TID
+            printf("PID %jd created thread for %s TID: %jd\n", 
+                   (intmax_t)category_pid, 
+                   formatted_file_id, 
+                   (intmax_t)syscall(SYS_gettid));  // Using syscall to get TID
 
             thread_index++;
         }
@@ -353,7 +351,7 @@ void* handle_store(struct HandleArgs* args) {
                exit(EXIT_FAILURE);
            }
 
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 1; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
         snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", store_path, category_paths[i]);
         // Create a process for each store
@@ -397,7 +395,7 @@ void handle_all_stores(struct HandleArgs* args) {
         Final: آبدیت کردن محصولات نهایی سبد خرید کاربر
         sleep all three threads
     */
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 1; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
         snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", parent_path, i + 1);
 
@@ -412,7 +410,7 @@ void handle_all_stores(struct HandleArgs* args) {
                 handle_store(args);
                 exit(EXIT_SUCCESS);
             default:
-                printf("PID: %jd created child for Store%d PID:%jd\n", (intmax_t)parent_pid, i + 1, (intmax_t)store_pid);
+                printf("PID %jd created child for Store%d PID:%jd\n", (intmax_t)parent_pid, i + 1, (intmax_t)store_pid);
                 // exit(EXIT_SUCCESS);
                 break;
            }
