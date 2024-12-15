@@ -183,6 +183,7 @@ void get_user_details(struct User* user) {
     }
 }
 
+
 void* handle_file(void* args_void) {
     struct HandleArgs* args = (struct HandleArgs*)args_void;
     struct User* user = args->user;
