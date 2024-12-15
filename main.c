@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <sys/syscall.h>   // For syscall and gettid
 #include <stdbool.h>
+#include <semaphore.h>
 
 #define MAX_PRODUCTS 100
 #define MAX_PATH_LEN 512
@@ -21,10 +22,67 @@
 #define NORMAL_COLOR  "\x1B[0m"
 #define GREEN  "\x1B[32m"
 #define BLUE  "\x1B[34m"
+#define MAX_FILES 2000
 
 // Global Variable
 char input[100];
 pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER; 
+
+typedef struct FileSemaphore
+{
+    char file_path[MAX_PATH_LEN];
+    sem_t semaphore;
+} FileSemaphore;
+
+FileSemaphore file_semaphores[MAX_FILES];
+int semaphore_count = 0;
+pthread_mutex_t semaphore_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+void initialize_file_semaphore(const char* file_path) {
+    pthread_mutex_lock(&semaphore_mutex);
+    strncpy(file_semaphores[semaphore_count].file_path, file_path, MAX_PATH_LEN);
+    sem_init(&file_semaphores[semaphore_count].semaphore, 0, 1);
+    semaphore_count++;
+    pthread_mutex_unlock(&semaphore_mutex);
+}
+
+sem_t* get_file_semaphore(const char* file_path) {
+    for (int i = 0; i < semaphore_count; i++) {
+        if (strcmp(file_semaphores[i].file_path, file_path) == 0) {
+            return &file_semaphores[i].semaphore;
+        }
+    }
+    return NULL;
+}
+
+void initialize_semaphores_for_directory(const char* directory_path) {
+    DIR* dir = opendir(directory_path);
+    if (dir == NULL) {
+        perror("Error opening directory in semaphore");
+        return;
+    }
+
+    struct dirent* entry;
+    char path[MAX_PATH_LEN];
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        snprintf(path, MAX_PATH_LEN, "%s/%s", directory_path, entry->d_name);
+
+        if (entry->d_type == DT_DIR) {
+            initialize_semaphores_for_directory(path);
+        } else if (entry->d_type == DT_REG && strstr(entry->d_name, ".txt")) {
+            initialize_file_semaphore(path);
+        }
+    }
+
+    closedir(dir);
+}
+
+
 
 struct Order {
     char name[50];
@@ -74,6 +132,9 @@ void* handle_file(void* args);
 
 // Main function
 int main() {
+    const char* root_directory = "./Dataset";
+    initialize_semaphores_for_directory(root_directory);
+
     struct User user = {0};  // Declare a global 'user' variable
     // do {
     // create process for user
@@ -94,6 +155,11 @@ int main() {
     args.file_path = "./Dataset";
     handle_all_stores(&args);
     // } while(1);
+
+
+    for (int i = 0; i < semaphore_count; i++) {
+        sem_destroy(&file_semaphores[i].semaphore);
+    }
     return 0;
 }
 
@@ -188,6 +254,18 @@ void* handle_file(void* args_void) {
     struct HandleArgs* args = (struct HandleArgs*)args_void;
     struct User* user = args->user;
     char* file_name = args->file_path;
+
+    sem_t* semaphore = get_file_semaphore(file_name);
+
+    if (semaphore == NULL) {
+        fprintf(stderr, "No semaphore found for file: %s\n", file_name);
+        pthread_exit(NULL);
+    }
+
+    sem_wait(semaphore);
+
+    printf("Thread %lu is in semaphore file: %s\n", pthread_self(), file_name);
+
     struct Product* product = &args->product;
 
     pid_t tid = syscall(SYS_gettid);
@@ -284,6 +362,8 @@ void* handle_file(void* args_void) {
             }
         }
         fclose(file);
+
+        sem_post(semaphore);
 
         // If a valid product was found, print its details
         if (isProductFound) {
@@ -454,4 +534,18 @@ void handle_all_stores(struct HandleArgs* args) {
         wait(NULL);
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
