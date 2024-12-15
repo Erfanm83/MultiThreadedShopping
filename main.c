@@ -247,18 +247,16 @@ void* handle_file(void* args_void) {
         for (int i = 0; i < MAX_PRODUCTS; i++) {
             if (strcmp(product.name, user->orderlist[i].name) == 0) {  // Using 'user->' to access fields of User struct
                 printf("Match found for %s\n", product.name);
-
-                // Update the order quantity based on the matching product
-                user->orderlist[i].quantity += 1;  // Or apply any other logic here
+                product.cost = product.price * product.score;
 
                 // Print the product info (for debugging)
                 printf("Name : %s\n", product.name);
-                printf("Price : %lf\n", product.price);
+                printf("Price : %.2lf\n", product.price);
                 printf("Score : %lf\n", product.score);
                 printf("Entity : %d\n", product.entity);
                 printf("Date : %d-%d-%d\n", product.date.year, product.date.month, product.date.day);
                 printf("Time : %d:%d:%d\n", product.time.hour, product.time.minutes, product.time.seconds);
-                printf("Cost : %lf\n", product.cost);
+                printf("Cost : %.2lf\n", product.cost);
                 printf("-----------------------------------------\n");
                 // Debug: Print the user's orderlist to check if it's populated
                 printf("User's Order List:\n");
