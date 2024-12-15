@@ -24,6 +24,7 @@
 
 // Global Variable
 char input[100];
+pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER; 
 
 struct Order {
     char name[50];
@@ -182,7 +183,6 @@ void get_user_details(struct User* user) {
     }
 }
 
-
 void* handle_file(void* args_void) {
     struct HandleArgs* args = (struct HandleArgs*)args_void;
     struct User* user = args->user;
@@ -206,37 +206,35 @@ void* handle_file(void* args_void) {
     bool isEntityValid = false;
     bool isProductFound = false;
     char line[256];
+    // Lock the file handling section to ensure exclusive access
+    pthread_mutex_lock(&file_mutex);
+    int orderIndex;
     FILE *file = fopen(file_name, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", file_name);
+        pthread_mutex_unlock(&file_mutex);
         pthread_exit(NULL);
     } else {
-        memset(product, 0, sizeof(struct Product));  // Clear product struct
+        memset(product, 0, sizeof(struct Product));
         while (fgets(line, sizeof(line), file)) {
-            line[strcspn(line, "\n")] = 0;  // Remove newline character
-            // Debug: Print the line being processed
-            // printf("Processing line: %s\n", line);
-            // Process "Name:" line
+            line[strcspn(line, "\n")] = 0;
             if (strncmp(line, "Name:", 5) == 0) {
                 namestr = line + 6;  // Skip the "Name: " part
                 for (int i = 0; i < MAX_PRODUCTS; i++) {
                     if (strcmp(namestr, user->orderlist[i].name) == 0) {
-                        // We found the product name in the user's order list
                         strcpy(product->name, namestr);
                         isNameFound = true;
+                        orderIndex = i;
                         break;
                     }
                 }
             }
-            // Process "Entity:" line
             else if (strncmp(line, "Entity:", 7) == 0) {
-                entity = atoi(line + 8);  // Extract the entity value
-                for (int i = 0; i < MAX_PRODUCTS; i++) {
-                    if (isNameFound && user->orderlist[i].quantity <= entity) {
-                        product->entity = entity;
-                        isEntityValid = true;
-                        break;
-                    }
+                entity = atoi(line + 8);
+                if (isNameFound && user->orderlist[orderIndex].quantity <= entity) {
+                    product->entity = entity;
+                    isEntityValid = true;
+                    break;
                 }
             }
         }
@@ -245,6 +243,7 @@ void* handle_file(void* args_void) {
         FILE *file = fopen(file_name, "r");
         if (file == NULL) {
             printf("Error opening file: %s\n", file_name);
+            pthread_mutex_unlock(&file_mutex);
             pthread_exit(NULL);
         } else {
             if (isNameFound && isEntityValid && !isProductFound) {
@@ -298,126 +297,10 @@ void* handle_file(void* args_void) {
             printf("Cost : %.2f\n", product->cost);
             printf("-----------------------------------------\n");
         }
-
-        // Debug: Print the user's orderlist to check if it's populated
-        // printf("User's Order List:\n");
-        // for (int i = 0; i < MAX_PRODUCTS; i++) {
-        //     if (user->orderlist[i].quantity > 0) {
-        //         printf("Item: %s, Quantity: %d\n", user->orderlist[i].name, user->orderlist[i].quantity);
-        //     }
-        // }
     }
-
+    pthread_mutex_unlock(&file_mutex);
     return NULL;
 }
-
-
-// void* handle_file(void* args_void) {
-//     struct HandleArgs* args = (struct HandleArgs*)args_void;
-//     struct User* user = args->user;
-//     char* file_name = args->file_path;
-//     struct Product* product = &args->product;
-
-//     pid_t tid = syscall(SYS_gettid);
-//     pid_t category_pid = getpid();
-
-//     char formatted_file_id[13];
-//     snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", tid);
-
-//     printf("PID %jd created thread for %s TID: %jd\n",
-//             (intmax_t)category_pid, 
-//             formatted_file_id, 
-//             (intmax_t)syscall(SYS_gettid));
-
-//     char* namestr, entity, orderIndex;
-//     bool isName = false;
-//     bool isEntity = false;
-//     char line[256];
-//     FILE *file = fopen(file_name, "r");
-//     if (file == NULL) {
-//         printf("Error opening file: %s\n", file_name);
-//         pthread_exit(NULL);
-//     } else {
-//         memset(product, 0, sizeof(struct Product));  // Clear product struct
-        
-//         while (fgets(line, sizeof(line), file)) {
-//             line[strcspn(line, "\n")] = 0;
-//             if (strncmp(line, "Name:", 5) == 0) {
-//                 strcpy(namestr, line + 6);
-//                 for (int i = 0; i < MAX_PRODUCTS; i++) {
-//                     if (strcmp(namestr, user->orderlist[i].name) == 0) {
-//                         strcpy(product->name, line + 6);
-//                         orderIndex = i;
-//                         isName = true;
-//                     }
-//                 }
-//             } else if (strcmp(line, "Entity:", 7) == 0) {
-//                 strcpy(entity, line + 8);
-//                 if ((int)entity >= user->orderlist[orderIndex].quantity) {
-//                     product->entity = atoi(line + 8);
-//                     isEntity = true;
-//                 }
-//             }
-//         }
-
-//         if (isName == true && isEntity == true) {
-//             while (fgets(line, sizeof(line), file)) {
-//                 line[strcspn(line, "\n")] = 0;
-//                 if (strncmp(line, "Price:", 6) == 0) {
-//                     product->price = atof(line + 7);
-//                 } else if (strncmp(line, "Score:", 6) == 0) {
-//                     product->score = atof(line + 7);
-//                 } else if (strncmp(line, "Last Modified:", 14) == 0) {
-//                     char *date_time_str = line + 15;
-//                     char *date_str = strtok(date_time_str, " ");
-//                     char *time_str = strtok(NULL, " ");
-
-//                     if (date_str && time_str) {
-//                         int date_tokens_count = 0;
-//                         char **date_tokens = get_slices_input(date_str, &date_tokens_count, "-");
-//                         if (date_tokens_count == 3) {
-//                             product->date.year = atoi(date_tokens[0]);
-//                             product->date.month = atoi(date_tokens[1]);
-//                             product->date.day = atoi(date_tokens[2]);
-//                         }
-//                         free(date_tokens);
-
-//                         int time_tokens_count = 0;
-//                         char **time_tokens = get_slices_input(time_str, &time_tokens_count, ":");
-//                         if (time_tokens_count == 3) {
-//                             product->time.hour = atoi(time_tokens[0]);
-//                             product->time.minutes = atoi(time_tokens[1]);
-//                             product->time.seconds = atoi(time_tokens[2]);
-//                         }
-//                         free(time_tokens);
-//                     }
-//                 }
-//             }
-//         }
-
-//         fclose(file);
-        
-//         printf("The Product Found:\n");
-//         product->cost = product->price * product->score;
-
-//         printf("Name : %s\n", product->name);
-//         printf("Price : %.2lf\n", product->price);
-//         printf("Score : %lf\n", product->score);
-//         printf("Entity : %d\n", product->entity);
-//         printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
-//         printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
-//         printf("Cost : %.2lf\n", product->cost);
-//         printf("-----------------------------------------\n");
-
-//         printf("User's Order List:\n");
-//         for (int j = 0; j < MAX_PRODUCTS; j++) {
-//             if (user->orderlist[j].quantity > 0) {
-//                 printf("Item: %s, Quantity: %d\n", user->orderlist[j].name, user->orderlist[j].quantity);
-//             }
-//         }
-//     }
-//     return NULL;
-// }
 
 void* handle_category(struct HandleArgs* args) {
     char* file_path = args->file_path;
@@ -441,52 +324,48 @@ void* handle_category(struct HandleArgs* args) {
     pthread_t threads[file_count];
     pid_t category_pid = getpid();
     d = opendir(args->file_path);
+    if (d == NULL) {
+        perror("Failed to reopen category directory");
+        return NULL;
+    }
     // Create a thread for each file in the category
     while ((dir = readdir(d)) != NULL) {
         if (dir->d_type != DT_DIR) {
-            args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
-            snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
-            // printf("args->file_path : %s\n" , args->file_path);
-            // Create a new thread to process the file
-            int x = pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, args);
-            if (x != 0) {
-                perror("Error creating thread");
-                free(args);
-                free(file_path);
+            // Allocate memory for args for each thread to ensure thread-safety
+            struct HandleArgs* thread_args = malloc(sizeof(struct HandleArgs));
+            if (thread_args == NULL) {
+                perror("Failed to allocate memory for thread_args");
                 closedir(d);
                 return NULL;
             }
+
+            // Copy data to thread_args to avoid overwriting the shared args
+            thread_args->user = args->user;
+            thread_args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
+            snprintf(thread_args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
+
+            pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
+            pthread_join(threads[thread_index], NULL);
+
+            struct Product* product = &thread_args->product;
+            if (product->cost != 0) {
+                // Print the product info (for debugging)
+                printf("Name : %s\n", product->name);
+                printf("Price : %.2lf\n", product->price);
+                printf("Score : %lf\n", product->score);
+                printf("Entity : %d\n", product->entity);
+                printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+                printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+                printf("Cost : %.2lf\n", product->cost);
+                printf("-----------------------------------------\n");
+            }
+            free(thread_args->file_path);
+            free(thread_args);
 
             thread_index++;
         }
     }
     closedir(d);
-
-    // Wait for all threads to finish
-    for (int i = 0; i < file_count; i++) {
-        pthread_join(threads[i], NULL);
-    }
-    // struct Product* product = &args->product;
-    // printf("GORGALI  2\n");
-    // product->cost = product->price * product->score;
-
-    // // Print the product info (for debugging)
-    // printf("Name : %s\n", product->name);
-    // printf("Price : %.2lf\n", product->price);
-    // printf("Score : %lf\n", product->score);
-    // printf("Entity : %d\n", product->entity);
-    // printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
-    // printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
-    // printf("Cost : %.2lf\n", product->cost);
-    // printf("-----------------------------------------\n");
-    // // Debug: Print the user's orderlist to check if it's populated
-    // printf("User's Order List:\n");
-    // for (int i = 0; i < MAX_PRODUCTS; i++) {
-    //     if (args->user->orderlist[i].quantity > 0) {
-    //         printf("Item: %s, Quantity: %d\n", args->user->orderlist[i].name, args->user->orderlist[i].quantity);
-    //     }
-    // }
-
     return NULL;
 }
 
