@@ -60,6 +60,7 @@ struct Product {
 struct HandleArgs {
     struct User* user;
     char* file_path;
+    struct Product product;
 };
 
 // Prototype
@@ -181,103 +182,108 @@ void get_user_details(struct User* user) {
     }
 }
 
-// Function to handle file processing
 void* handle_file(void* args_void) {
     struct HandleArgs* args = (struct HandleArgs*)args_void;
     struct User* user = args->user;
     char* file_name = args->file_path;
+    struct Product* product = &args->product;
+
+    pid_t tid = syscall(SYS_gettid);
+    pid_t category_pid = getpid();
+
     FILE *file = fopen(file_name, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", file_name);
         pthread_exit(NULL);
     } else {
-        char line[256];
-        struct Product product;
-
-        // Default values in case not all fields are found
-        memset(&product, 0, sizeof(struct Product));
+        char line[256];  // Buffer to hold each line of the file
+        memset(product, 0, sizeof(struct Product));  // Clear product struct
 
         while (fgets(line, sizeof(line), file)) {
-            if (strncmp(line, "Name:", 5) == 0) {
-                strtok(line, "\n");
-                strcpy(product.name, line + 6);
-            } else if (strncmp(line, "Price:", 6) == 0) {
-                strtok(line, "\n");
-                product.price = atof(line + 7);
-            } else if (strncmp(line, "Score:", 6) == 0) {
-                strtok(line, "\n");
-                product.score = atof(line + 7);
-            } else if (strncmp(line, "Entity:", 7) == 0) {
-                strtok(line, "\n");
-                product.entity = atoi(line + 8);
-            } else if (strncmp(line, "Last Modified:", 14) == 0) {
-                // Parse "Last Modified: 2024-11-23 18:50:11"
-                char *date_time_str = line + 15; // Skip "Last Modified: "
+            line[strcspn(line, "\n")] = 0;
 
-                // Split date and time
+            if (strncmp(line, "Name:", 5) == 0) {
+                strcpy(product->name, line + 6);
+            } else if (strncmp(line, "Price:", 6) == 0) {
+                product->price = atof(line + 7);
+            } else if (strncmp(line, "Score:", 6) == 0) {
+                product->score = atof(line + 7);
+            } else if (strncmp(line, "Entity:", 7) == 0) {
+                product->entity = atoi(line + 8);
+            } else if (strncmp(line, "Last Modified:", 14) == 0) {
+                char *date_time_str = line + 15;
                 char *date_str = strtok(date_time_str, " ");
                 char *time_str = strtok(NULL, " ");
 
                 if (date_str && time_str) {
-                    // Parse the date (e.g., 2024-11-23)
                     int date_tokens_count = 0;
                     char **date_tokens = get_slices_input(date_str, &date_tokens_count, "-");
                     if (date_tokens_count == 3) {
-                        product.date.year = atoi(date_tokens[0]);
-                        product.date.month = atoi(date_tokens[1]);
-                        product.date.day = atoi(date_tokens[2]);
+                        product->date.year = atoi(date_tokens[0]);
+                        product->date.month = atoi(date_tokens[1]);
+                        product->date.day = atoi(date_tokens[2]);
                     }
                     free(date_tokens);
 
-                    // Parse the time (e.g., 18:50:11)
                     int time_tokens_count = 0;
                     char **time_tokens = get_slices_input(time_str, &time_tokens_count, ":");
                     if (time_tokens_count == 3) {
-                        product.time.hour = atoi(time_tokens[0]);
-                        product.time.minutes = atoi(time_tokens[1]);
-                        product.time.seconds = atoi(time_tokens[2]);
+                        product->time.hour = atoi(time_tokens[0]);
+                        product->time.minutes = atoi(time_tokens[1]);
+                        product->time.seconds = atoi(time_tokens[2]);
                     }
-                free(time_tokens);
+                    free(time_tokens);
                 }
-            }
-        }
-        
-        // Now compare the product name from the file with orderlist[i].name
-        // Loop through the user's orderlist to find a match
-        for (int i = 0; i < MAX_PRODUCTS; i++) {
-            if (strcmp(product.name, user->orderlist[i].name) == 0) {  // Using 'user->' to access fields of User struct
-                printf("Match found for %s\n", product.name);
-                product.cost = product.price * product.score;
-
-                // Print the product info (for debugging)
-                printf("Name : %s\n", product.name);
-                printf("Price : %.2lf\n", product.price);
-                printf("Score : %lf\n", product.score);
-                printf("Entity : %d\n", product.entity);
-                printf("Date : %d-%d-%d\n", product.date.year, product.date.month, product.date.day);
-                printf("Time : %d:%d:%d\n", product.time.hour, product.time.minutes, product.time.seconds);
-                printf("Cost : %.2lf\n", product.cost);
-                printf("-----------------------------------------\n");
-                // Debug: Print the user's orderlist to check if it's populated
-                printf("User's Order List:\n");
-                for (int i = 0; i < MAX_PRODUCTS; i++) {
-                    if (user->orderlist[i].quantity > 0) {
-                        printf("Item: %s, Quantity: %d\n", user->orderlist[i].name, user->orderlist[i].quantity);
-                    }
-                }
-                break;  // If you only want to update the first match, break here
             }
         }
 
         fclose(file);
+
+        char formatted_file_id[13];
+        snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", tid);
+
+        printf("PID %jd created thread for %s TID: %jd\n",
+                (intmax_t)category_pid, 
+                formatted_file_id, 
+                (intmax_t)syscall(SYS_gettid));
+        
+        // Now compare the product name from the file with orderlist[i].name
+        // Loop through the user's orderlist to find a match
+        // for (int i = 0; i < MAX_PRODUCTS; i++) {
+        //     if (strcmp(product->name, user->orderlist[i].name) == 0) {  // Match the product name
+        //         printf("Match found for %s\n", product->name);
+        //         product->cost = product->price * product->score;
+
+        //         // Print the product info (for debugging)
+        //         printf("Name : %s\n", product->name);
+        //         printf("Price : %.2lf\n", product->price);
+        //         printf("Score : %lf\n", product->score);
+        //         printf("Entity : %d\n", product->entity);
+        //         printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+        //         printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+        //         printf("Cost : %.2lf\n", product->cost);
+        //         printf("-----------------------------------------\n");
+
+        //         // Debug: Print the user's orderlist to check if it's populated
+        //         printf("User's Order List:\n");
+        //         for (int j = 0; j < MAX_PRODUCTS; j++) {
+        //             if (user->orderlist[j].quantity > 0) {
+        //                 printf("Item: %s, Quantity: %d\n", user->orderlist[j].name, user->orderlist[j].quantity);
+        //             }
+        //         }
+        //         break;  // If you only want to update the first match, break here
+        //     }
+        // }
     }
 
-    return 0;
+    return NULL;
 }
 
 // Function to handle files in each category
 void* handle_category(struct HandleArgs* args) {
     char* file_path = args->file_path;
+    struct Product* product = &args->product;
+
     DIR * d = opendir(args->file_path);
     if (d == NULL) {
         perror("Failed to open category directory");
@@ -312,25 +318,43 @@ void* handle_category(struct HandleArgs* args) {
                 closedir(d);
                 return NULL;
             }
-            // Create a formatted file ID (e.g., 000001ID)
-            char formatted_file_id[13];  // Adjust size as needed for your formatting
-            snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", thread_index + 1);
-
-            // Print the output with the correct PID, formatted file ID, and TID
-            printf("PID %jd created thread for %s TID: %jd\n", 
-                   (intmax_t)category_pid, 
-                   formatted_file_id, 
-                   (intmax_t)syscall(SYS_gettid));  // Using syscall to get TID
 
             thread_index++;
         }
     }
     closedir(d);
 
+    printf("GORGALI1");
     // Wait for all threads to finish
     for (int i = 0; i < file_count; i++) {
         pthread_join(threads[i], NULL);
     }
+
+    printf("GORGALI1");
+    for (int i = 0; i < MAX_PRODUCTS; i++) {
+            if (strcmp(product->name, args->user->orderlist[i].name) == 0) {  // Using 'user->' to access fields of User struct
+                printf("Match found for %s\n", product->name);
+                product->cost = product->price * product->score;
+
+                // Print the product info (for debugging)
+                printf("Name : %s\n", product->name);
+                printf("Price : %.2lf\n", product->price);
+                printf("Score : %lf\n", product->score);
+                printf("Entity : %d\n", product->entity);
+                printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+                printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+                printf("Cost : %.2lf\n", product->cost);
+                printf("-----------------------------------------\n");
+                // Debug: Print the user's orderlist to check if it's populated
+                printf("User's Order List:\n");
+                for (int i = 0; i < MAX_PRODUCTS; i++) {
+                    if (args->user->orderlist[i].quantity > 0) {
+                        printf("Item: %s, Quantity: %d\n", args->user->orderlist[i].name, args->user->orderlist[i].quantity);
+                    }
+                }
+                break;  // If you only want to update the first match, break here
+            }
+        }
 
     return NULL;
 }
