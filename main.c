@@ -10,6 +10,7 @@
 #include <sys/syscall.h>   // For syscall and gettid
 #include <stdbool.h>
 
+
 #define MAX_PRODUCTS 100
 // #define MAX_PATH_LEN 512
 #define MAX_PATH_LEN 1024
@@ -83,13 +84,45 @@ int create_file_log(char *name, int order){
     return 0;
 }
 
-int order_Chandom(){
-    return 0;
+// تابعی برای بررسی اینکه آیا فایلی با نام خاص موجود است یا خیر
+int file_exists(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file) {
+        fclose(file);
+        return 1; // فایل وجود دارد
+    }
+    return 0; // فایل وجود ندارد
 }
 
+int order_Chandom(char *name, int kodom){
+    int order = 0;
+    char filename[200];
+
+    // بررسی نام فایلهای موجود در دایرکتوری ./Dataset/
+    while (1) {
+        sprintf(filename, "./Dataset/%s_order%d.log", name, order);
+        if (!file_exists(filename)) {
+            // اگر فایل وجود نداشته باشد، شماره سفارش پیدا شده است
+            break;
+        }
+        order++;  // اگر فایل وجود داشت، شماره سفارش را افزایش بده
+    }
+
+    if(kodom == 0){
+        order--;
+        return order;
+    }else if (kodom == 1)
+    {
+        return order;
+    }
+    
+}
+
+
 int Log(struct User* user){
-    int Add_order = order_Chandom();
+    
     char *name = user->username;
+    int Add_order = order_Chandom(name, 1);
 
     int check = create_file_log(name, Add_order);
 
@@ -270,7 +303,7 @@ void* handle_file(void* args_void) {
     snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", tid);
 
     char filename[200]; 
-    int order_chandommm = order_Chandom();
+    int order_chandommm = order_Chandom(args->user->username, 0);
     sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
     char message[200]; 
     sprintf(message, "PID %jd created thread for %s TID: %jd\n",
@@ -517,7 +550,7 @@ void* handle_store(struct HandleArgs* args) {
                 exit(EXIT_FAILURE);
             case 0:
                 char filename[200]; 
-                int order_chandommm = order_Chandom();
+                int order_chandommm = order_Chandom(args->user->username,0);
                 sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
                 char message[200]; 
                 sprintf(message, "PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
@@ -598,7 +631,7 @@ void handle_all_stores(struct HandleArgs* args) {
                 store_pids[i] = store_pid;
 
                 char filename[200]; 
-                int order_chandommm = order_Chandom();
+                int order_chandommm = order_Chandom(args->user->username,0);
                 sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
                 char message[200]; 
                 sprintf(message, "PID %jd created child for Store%d PID:%jd\n", 
