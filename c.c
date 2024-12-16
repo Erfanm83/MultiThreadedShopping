@@ -9,10 +9,10 @@
 #include <inttypes.h>
 #include <sys/syscall.h>   // For syscall and gettid
 #include <stdbool.h>
+#include <semaphore.h>
 
 #define MAX_PRODUCTS 100
-// #define MAX_PATH_LEN 512
-#define MAX_PATH_LEN 1024
+#define MAX_PATH_LEN 512
 #ifndef DT_REG
     #define DT_REG 8
 #endif
@@ -22,9 +22,67 @@
 #define NORMAL_COLOR  "\x1B[0m"
 #define GREEN  "\x1B[32m"
 #define BLUE  "\x1B[34m"
+#define MAX_FILES 2000
 
 // Global Variable
 char input[100];
+pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER; 
+
+typedef struct FileSemaphore
+{
+    char file_path[MAX_PATH_LEN];
+    sem_t semaphore;
+} FileSemaphore;
+
+FileSemaphore file_semaphores[MAX_FILES];
+int semaphore_count = 0;
+pthread_mutex_t semaphore_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
+void initialize_file_semaphore(const char* file_path) {
+    pthread_mutex_lock(&semaphore_mutex);
+    strncpy(file_semaphores[semaphore_count].file_path, file_path, MAX_PATH_LEN);
+    sem_init(&file_semaphores[semaphore_count].semaphore, 0, 1);
+    semaphore_count++;
+    pthread_mutex_unlock(&semaphore_mutex);
+}
+
+sem_t* get_file_semaphore(const char* file_path) {
+    for (int i = 0; i < semaphore_count; i++) {
+        if (strcmp(file_semaphores[i].file_path, file_path) == 0) {
+            return &file_semaphores[i].semaphore;
+        }
+    }
+    return NULL;
+}
+
+void initialize_semaphores_for_directory(const char* directory_path) {
+    DIR* dir = opendir(directory_path);
+    if (dir == NULL) {
+        perror("Error opening directory in semaphore");
+        return;
+    }
+
+    struct dirent* entry;
+    char path[MAX_PATH_LEN];
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        snprintf(path, MAX_PATH_LEN, "%s/%s", directory_path, entry->d_name);
+
+        if (entry->d_type == DT_DIR) {
+            initialize_semaphores_for_directory(path);
+        } else if (entry->d_type == DT_REG && strstr(entry->d_name, ".txt")) {
+            initialize_file_semaphore(path);
+        }
+    }
+
+    closedir(dir);
+}
+
+
 
 struct Order {
     char name[50];
@@ -54,7 +112,7 @@ struct Product {
     float price;
     float score;
     int entity;
-    float cost;
+    float cost;  // cost is initialized to -1 later in the function, not in the struct definition
     struct Date date;
     struct Time time;
 };
@@ -62,8 +120,6 @@ struct Product {
 struct HandleArgs {
     struct User* user;
     char* file_path;
-    struct Product productList[MAX_PRODUCTS];
-    int storeIndex;
     struct Product product;
 };
 
@@ -76,7 +132,9 @@ void* handle_file(void* args);
 
 // Main function
 int main() {
-    pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
+    const char* root_directory = "./Dataset";
+    initialize_semaphores_for_directory(root_directory);
+
     struct User user = {0};  // Declare a global 'user' variable
     // do {
     // create process for user
@@ -96,38 +154,17 @@ int main() {
     args.user = &user;
     args.file_path = "./Dataset";
     handle_all_stores(&args);
-
-    pthread_mutex_lock(&file_mutex);
-    FILE *file = fopen("bestlist.dat", "rb");
-    if (file) {
-        fread(&args, sizeof(struct HandleArgs), 1, file);
-        fclose(file);
-        struct Product* product = &args.product;
-        printf("The Content On bestlist.dat\n");
-        printf("  Name: %s\n", args.product.name);
-        printf("  Price: %.2f\n", args.product.price);
-        printf("  Score: %.2f\n", args.product.score);
-        printf("  Entity: %d\n", args.product.entity);
-        printf("  Cost: %.2f\n", args.product.cost);
-        printf("  Date: %04d-%02d-%02d\n", args.product.date.year, args.product.date.month, args.product.date.day);
-        printf("  Time: %02d:%02d\n", args.product.time.hour, args.product.time.minutes);
-        printf("\n");
-        
-    } else {
-        perror("Failed to read from file");
-    }
-    pthread_mutex_unlock(&file_mutex);
-
     // } while(1);
+
+
+    for (int i = 0; i < semaphore_count; i++) {
+        sem_destroy(&file_semaphores[i].semaphore);
+    }
     return 0;
 }
 
 char** get_slices_input(char *inputstr, int *num_tokens , char *splitter) {
     char **result = malloc(10 * sizeof(char *));  // allocate for 10 tokens
-    if (result == NULL) {
-        perror("Memory allocation failed for combinedstr");
-        exit(EXIT_FAILURE);
-    }
     char *token = strtok(inputstr, splitter);
     int index = 0;
 
@@ -212,11 +249,23 @@ void get_user_details(struct User* user) {
     }
 }
 
+
 void* handle_file(void* args_void) {
-    pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     struct HandleArgs* args = (struct HandleArgs*)args_void;
     struct User* user = args->user;
     char* file_name = args->file_path;
+
+    sem_t* semaphore = get_file_semaphore(file_name);
+
+    if (semaphore == NULL) {
+        fprintf(stderr, "No semaphore found for file: %s\n", file_name);
+        pthread_exit(NULL);
+    }
+
+    sem_wait(semaphore);
+
+    printf("Thread %lu is in semaphore file: %s\n", pthread_self(), file_name);
+
     struct Product* product = &args->product;
 
     pid_t tid = syscall(SYS_gettid);
@@ -236,11 +285,9 @@ void* handle_file(void* args_void) {
     bool isEntityValid = false;
     bool isProductFound = false;
     char line[256];
-
     // Lock the file handling section to ensure exclusive access
     pthread_mutex_lock(&file_mutex);
     int orderIndex;
-
     FILE *file = fopen(file_name, "r");
     if (file == NULL) {
         printf("Error opening file: %s\n", file_name);
@@ -271,16 +318,15 @@ void* handle_file(void* args_void) {
             }
         }
         fclose(file);
-
         char line2[256];
-        FILE *file2 = fopen(file_name, "r");
-        if (file2 == NULL) {
+        FILE *file = fopen(file_name, "r");
+        if (file == NULL) {
             printf("Error opening file: %s\n", file_name);
             pthread_mutex_unlock(&file_mutex);
             pthread_exit(NULL);
         } else {
             if (isNameFound && isEntityValid && !isProductFound) {
-                while (fgets(line2, sizeof(line2), file2)) {
+                while (fgets(line2, sizeof(line2), file)) {
                     line2[strcspn(line2, "\n")] = 0;
                     if (strncmp(line2, "Price:", 6) == 0) {
                         product->price = atof(line2 + 7);
@@ -315,20 +361,22 @@ void* handle_file(void* args_void) {
                 isProductFound = true;
             }
         }
-        fclose(file2);
+        fclose(file);
+
+        sem_post(semaphore);
 
         // If a valid product was found, print its details
         if (isProductFound) {
             product->cost = product->score*product->price;
-            // printf("Founded Product :\n");
-            // printf("Name : %s\n", product->name);
-            // printf("Price : %.2f\n", product->price);
-            // printf("Score : %.2f\n", product->score);
-            // printf("Entity : %d\n", product->entity);
-            // printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
-            // printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
-            // printf("Cost : %.2f\n", product->cost);
-            // printf("-----------------------------------------\n");
+            printf("Founded Product :\n");
+            printf("Name : %s\n", product->name);
+            printf("Price : %.2f\n", product->price);
+            printf("Score : %.2f\n", product->score);
+            printf("Entity : %d\n", product->entity);
+            printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+            printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+            printf("Cost : %.2f\n", product->cost);
+            printf("-----------------------------------------\n");
         }
     }
     pthread_mutex_unlock(&file_mutex);
@@ -336,9 +384,7 @@ void* handle_file(void* args_void) {
 }
 
 void* handle_category(struct HandleArgs* args) {
-    pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
     char* file_path = args->file_path;
-    char* dat_path;
 
     DIR * d = opendir(args->file_path);
     if (d == NULL) {
@@ -357,7 +403,7 @@ void* handle_category(struct HandleArgs* args) {
 
     int thread_index = 0;
     pthread_t threads[file_count];
-
+    pid_t category_pid = getpid();
     d = opendir(args->file_path);
     if (d == NULL) {
         perror("Failed to reopen category directory");
@@ -366,63 +412,34 @@ void* handle_category(struct HandleArgs* args) {
     // Create a thread for each file in the category
     while ((dir = readdir(d)) != NULL) {
         if (dir->d_type != DT_DIR) {
-            // Allocate memory for thread_args for each thread to ensure thread-safety
+            // Allocate memory for args for each thread to ensure thread-safety
             struct HandleArgs* thread_args = malloc(sizeof(struct HandleArgs));
             if (thread_args == NULL) {
                 perror("Failed to allocate memory for thread_args");
                 closedir(d);
-                // exit(EXIT_FAILURE);
                 return NULL;
             }
 
+            // Copy data to thread_args to avoid overwriting the shared args
             thread_args->user = args->user;
-
-            // Allocate and copy the file path to thread_args
             thread_args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
             snprintf(thread_args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
 
-            // Create a thread to handle the file
             pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
             pthread_join(threads[thread_index], NULL);
 
             struct Product* product = &thread_args->product;
             if (product->cost != 0) {
                 // Print the product info (for debugging)
-                // printf("On handle_category :\n");
-                // printf("Name : %s\n", product->name);
-                // printf("Price : %.2lf\n", product->price);
-                // printf("Score : %lf\n", product->score);
-                // printf("Entity : %d\n", product->entity);
-                // printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
-                // printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
-                // printf("Cost : %.2lf\n", product->cost);
-                // printf("-----------------------------------------\n");
-                // Write the modified args to a file
-                // printf("storeIndex at category: %d\n", args->storeIndex);
-                thread_args->storeIndex = args->storeIndex;
-                dat_path = malloc(MAX_PATH_LEN * sizeof(char));
-                if (dat_path == NULL) {
-                    perror("malloc failed");
-                    exit(EXIT_FAILURE);
-                }
-                snprintf(dat_path, MAX_PATH_LEN, "store%d.dat", args->storeIndex);
-                // printf("dat_path at category: %s\n", dat_path);
-
-                // Lock the mutex before writing to the file
-                pthread_mutex_lock(&dat_mutex);
-
-                FILE *file = fopen(dat_path, "wb");
-                if (file != NULL) {
-                    fwrite(thread_args, sizeof(struct HandleArgs), 1, file);
-                    fclose(file);
-                } else {
-                    perror("Failed to write to file");
-                }
-
-                // Unlock the mutex after writing
-                pthread_mutex_unlock(&dat_mutex);
+                printf("Name : %s\n", product->name);
+                printf("Price : %.2lf\n", product->price);
+                printf("Score : %lf\n", product->score);
+                printf("Entity : %d\n", product->entity);
+                printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+                printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+                printf("Cost : %.2lf\n", product->cost);
+                printf("-----------------------------------------\n");
             }
-
             free(thread_args->file_path);
             free(thread_args);
 
@@ -436,23 +453,19 @@ void* handle_category(struct HandleArgs* args) {
 void* handle_store(struct HandleArgs* args) {
     char* store_path = (char*) args->file_path;
     char category_paths[8][100] = {
-        "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
+    "Apparel", "Beauty", "Digital", "Food", "Home", "Market", "Sports", "Toys"
     };
     char file_path[MAX_PATH_LEN];
     pid_t category_pid;
     pid_t store_pid = getpid();
 
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
-        perror("signal");
-        exit(EXIT_FAILURE);
-    }
+               perror("signal");
+               exit(EXIT_FAILURE);
+           }
 
-    for (int i = 0; i < 1; i++) {
+    for (int i = 0; i < 8; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
-        if (args->file_path == NULL) {
-            perror("malloc failed");
-            exit(EXIT_FAILURE);
-        }
         snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", store_path, category_paths[i]);
         // Create a process for each store
         category_pid = fork();
@@ -461,204 +474,77 @@ void* handle_store(struct HandleArgs* args) {
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
-                printf("PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
+                printf("PID %jd created child for %s PID: %jd\n",(intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
                 handle_category(args);
                 exit(EXIT_SUCCESS);
             default:
-                exit(EXIT_SUCCESS);
+                // exit(EXIT_SUCCESS);
                 break;
-        }
+           }
     }
     // Wait for all store processes to finish
     for (int i = 0; i < 3; i++) {
         wait(NULL);
     }
-    // // Read the modified args from the file
-    // FILE *file = fopen("modified_args.dat", "rb");
-    // if (file != NULL) {
-    //     fread(args, sizeof(struct HandleArgs), 1, file);
-    //     fclose(file);
-    // } else {
-    //     perror("Failed to read from file");
-    // }
-
-    // struct Product* product = &args->product;
-    // printf("In handle_store after update:\n");
-    // printf("Name: %s\n", product->name);
-    // printf("Price: %.2lf\n", product->price);
-    // printf("Cost: %.2lf\n", product->cost);
-
     return NULL;
 }
 
 void handle_all_stores(struct HandleArgs* args) {
-    pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t dat_mutex2 = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t add_mutex = PTHREAD_MUTEX_INITIALIZER;
-    char *parent_path = (char*)args->file_path;
-    char *dat_path;
+    char * parent_path = (char*)args->file_path;
     pid_t store_pid;
-    struct HandleArgs fileargs;
-    int storeIdx = -1;
-    struct Product* product , bestShoppingList;
-
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+               perror("signal");
+               exit(EXIT_FAILURE);
+           }
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
         perror("signal");
         exit(EXIT_FAILURE);
     }
-
-    pid_t store_pids[3] = {0};  // Array to store PIDs of the child processes
-
-    // Create child processes for each store
+    // if a thread finds a products
+    /* 
+        create 3 threads for
+        Orders: ارزش گذاری سبد های خرید فروشگاه
+        Scores: امتیازگذاری مجدد و آ\دیت امتیاز محصولات 
+        Final: آبدیت کردن محصولات نهایی سبد خرید کاربر
+        sleep all three threads
+    */
     for (int i = 0; i < 3; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
-        if (args->file_path == NULL) {
-            perror("malloc failed");
-            exit(EXIT_FAILURE);
-        }
         snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", parent_path, i + 1);
 
-        // Fork a child process for each store
+        // Create a process for each store
+        pid_t parent_pid = getppid();
         store_pid = fork();
         switch (store_pid) {
             case -1:
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
-                // Child process
-                pthread_mutex_lock(&add_mutex);
-                args->storeIndex = i + 1;
-                pthread_mutex_unlock(&add_mutex);
-                handle_store(args);  // Process the store
-                exit(EXIT_SUCCESS);  // Exit child process after completing the task
+                handle_store(args);
+                exit(EXIT_SUCCESS);
             default:
-                // Parent process stores the child PID to wait for it later
-                store_pids[i] = store_pid;
-                printf("PID %jd created child for Store%d PID:%jd\n", 
-                       (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
+                printf("PID %jd created child for Store%d PID:%jd\n", (intmax_t)parent_pid, i + 1, (intmax_t)store_pid);
+                // exit(EXIT_SUCCESS);
                 break;
-        }
+           }
     }
 
-    // Wait for all child processes to finish
+    // Wait for all store processes to finish
     for (int i = 0; i < 3; i++) {
-        int status;
-        if (store_pids[i] != 0 && (store_pids[i], &status, 0) == -1) {
-            perror("waitpid");
-            exit(EXIT_FAILURE);
-        }
-        if (WIFEXITED(status)) {
-            // printf("Child process %jd (Store%d) terminated successfully.\n", 
-            //        (intmax_t)store_pids[i], i + 1);
-        } else {
-            printf("Child process %jd (Store%d) terminated with an error.\n", 
-                   (intmax_t)store_pids[i], i + 1);
-        }
+        wait(NULL);
     }
-
-    // Now that all child processes are done, you can safely read from the .dat files
-    for (int i = 0; i < 3; i++) {
-        dat_path = malloc(MAX_PATH_LEN * sizeof(char));
-        if (dat_path == NULL) {
-            perror("malloc failed");
-            exit(EXIT_FAILURE);
-        }
-        snprintf(dat_path, MAX_PATH_LEN, "store%d.dat", i + 1);
-        pthread_mutex_lock(&dat_mutex);
-        FILE *file = fopen(dat_path, "rb");
-        if (file != NULL) {
-            fread(args, sizeof(struct HandleArgs), 1, file);
-            fclose(file);
-        } else {
-            perror("Failed to read from file");
-        }
-        product = &args->product;
-        // storeIdx = args->storeIndex;
-
-        strcpy(args->productList[i].name, product->name);
-        args->productList[i].price = product->price;
-        args->productList[i].score = product->score;
-        args->productList[i].entity = product->entity;
-        args->productList[i].cost = product->cost;
-        args->productList[i].date = product->date;
-        args->productList[i].time = product->time;
-
-        FILE *file2 = fopen("bestlist.dat", "wb");
-        if (file2 != NULL) {
-            fwrite(args, sizeof(struct HandleArgs), 1, file);
-            fclose(file2);
-        } else {
-            perror("Failed to write to file");
-        }
-
-        // memcpy(&fileargs, args, sizeof(struct HandleArgs));
-        // printf("\n--------- Price: %.2f ------------\n", args->productList[i].price);
-        // printf("In handle_all_stores in the middle....:\n");
-        // printf("StoreIndex: %d\n", args->storeIndex);
-        // printf("Cost: %.2lf\n", product->cost);
-        // printf("-------------------------------------------\n");
-        // Unlock the mutex after reading
-        pthread_mutex_unlock(&dat_mutex);
-        free(dat_path);
-    }
-
-    // printf("Using args_copy after loop: %s\n", fileargs.productList[0].name);
-
-    // for (int i = 0; i < 3; i++) {
-    //     printf("Product %d:\n", i + 1);
-    //     printf("  Name: %s\n", fileargs.productList[i].name);
-    //     printf("  Price: %.2f\n", fileargs.productList[i].price);
-    //     printf("  Score: %.2f\n", fileargs.productList[i].score);
-    //     printf("  Entity: %d\n", fileargs.productList[i].entity);
-    //     printf("  Cost: %.2f\n", fileargs.productList[i].cost);
-    //     printf("  Date: %04d-%02d-%02d\n", fileargs.productList[i].date.year, fileargs.productList[i].date.month, fileargs.productList[i].date.day);
-    //     printf("  Time: %02d:%02d\n", fileargs.productList[i].time.hour, fileargs.productList[i].time.minutes);
-    //     printf("\n");
-    // }
-
-    // int bestCost = -1;
-    // struct Product *p;
-    // int bestIndex = 0;
-    // for (int i = 0; i < 3; i++)
-    // {
-    //     p = &args->productList[i];
-    //     // printf("\n--------------------- Price: %.2f\n", args->productList[i].price);
-    //     printf("p->cost : %f\n", p->cost);
-    //     if (p->cost > bestCost) {
-    //         bestIndex = i;
-    //     }
-    // }
-
-    // printf("The Best Shopping List \n");
-    // printf("  Name: %s\n", args->productList[bestIndex].name);
-    // printf("  Price: %.2f\n", args->productList[bestIndex].price);
-    // printf("  Score: %.2f\n", args->productList[bestIndex].score);
-    // printf("  Entity: %d\n", args->productList[bestIndex].entity);
-    // printf("  Cost: %.2f\n", args->productList[bestIndex].cost);
-    // printf("  Date: %d-%d-%d\n", args->productList[bestIndex].date.year, args->productList[bestIndex].date.month, args->productList[bestIndex].date.day);
-    // printf("  Time: %02d:%02d\n", args->productList[bestIndex].time.minutes, args->productList[bestIndex].time.seconds);
-    // printf("\n");
-
-    //     printf("bestCost: %d\n", bestCost);
-    //     printf("Costs[i]: %d\n", Costs[i]);
-    //     if (Costs[i] > bestCost) {
-    //         bestCost = Costs[i];
-    //         printf("bestCostc changes to: %d\n", bestCost);
-    //         bestShoppingList.cost = bestCost;
-    //         bestShoppingList.date = product->date;
-    //         bestShoppingList.entity = product->entity;
-    //         strcpy(bestShoppingList.name, product->name);
-    //         bestShoppingList.price = product->price;
-    //         bestShoppingList.score = product->score;
-    //         bestShoppingList.time = product->time;
-    //     }
-    // }
-    
-    // printf("The Best Shopping List \n");
-    // printf("In handle_all_stores after update:\n");
-    // printf("Name: %s\n", bestShoppingList.name);
-    // printf("Price: %.2lf\n", bestShoppingList.price);
-    // printf("Cost: %.2lf\n", bestShoppingList.cost);
-    
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
