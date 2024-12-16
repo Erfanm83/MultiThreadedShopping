@@ -31,12 +31,6 @@ struct Order {
     int quantity;
 };
 
-struct User {
-    char username[50];
-    struct Order orderlist[MAX_PRODUCTS];
-    float priceThreshold;
-};
-
 struct Date {
     int year;
     int month;
@@ -59,12 +53,28 @@ struct Product {
     struct Time time;
 };
 
+struct ThreadDetails {
+    pthread_t tid;            // Thread ID
+    struct Product product;   // Product being processed
+    pthread_cond_t cond_var;  // Condition variable to wake the thread
+    pthread_mutex_t mutex;    // Mutex to protect the shared data
+    int new_score;            // Store new score when user rates
+    int updated;              // Flag to indicate if the thread has been updated
+};
+
+struct User {
+    char username[50];
+    struct Order orderlist[MAX_PRODUCTS];
+    float priceThreshold;
+};
+
 struct HandleArgs {
     struct User* user;
     char* file_path;
     struct Product productList[MAX_PRODUCTS];
     int storeIndex;
     struct Product product;
+    struct ThreadDetails user_details;
 };
 
 // Prototype
@@ -73,11 +83,13 @@ void get_user_details(struct User* user);
 void handle_all_stores(struct HandleArgs* args);
 void* handle_store(struct HandleArgs* args);
 void* handle_file(void* args);
+void check_and_ask_to_buy(struct HandleArgs* args, struct Product* product);
+void* update_product_file(void* args_void);
 
 // Main function
 int main() {
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
-    struct User user = {0};  // Declare a global 'user' variable
+    struct User user = {.priceThreshold = -1};  // Declare a global 'user' variable
     // do {
     // create process for user
     get_user_details(&user);
@@ -111,7 +123,8 @@ int main() {
         printf("  Cost: %.2f\n", args.product.cost);
         printf("  Date: %04d-%02d-%02d\n", args.product.date.year, args.product.date.month, args.product.date.day);
         printf("  Time: %02d:%02d\n", args.product.time.hour, args.product.time.minutes);
-        printf("\n");
+        printf("------------------------------------\n");
+        check_and_ask_to_buy(&args, product);
         
     } else {
         perror("Failed to read from file");
@@ -498,9 +511,8 @@ void handle_all_stores(struct HandleArgs* args) {
     char *parent_path = (char*)args->file_path;
     char *dat_path;
     pid_t store_pid;
-    struct HandleArgs fileargs;
-    int storeIdx = -1;
-    struct Product* product , bestShoppingList;
+    int bestCost = -1;
+    struct Product* product;
 
     if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
         perror("signal");
@@ -575,90 +587,78 @@ void handle_all_stores(struct HandleArgs* args) {
         product = &args->product;
         // storeIdx = args->storeIndex;
 
-        strcpy(args->productList[i].name, product->name);
-        args->productList[i].price = product->price;
-        args->productList[i].score = product->score;
-        args->productList[i].entity = product->entity;
-        args->productList[i].cost = product->cost;
-        args->productList[i].date = product->date;
-        args->productList[i].time = product->time;
-
-        FILE *file2 = fopen("bestlist.dat", "wb");
-        if (file2 != NULL) {
-            fwrite(args, sizeof(struct HandleArgs), 1, file);
-            fclose(file2);
-        } else {
-            perror("Failed to write to file");
+        if (product->cost > bestCost) {
+            bestCost = product->cost;
+            FILE *file2 = fopen("bestlist.dat", "wb");
+            if (file2 != NULL) {
+                fwrite(args, sizeof(struct HandleArgs), 1, file);
+                fclose(file2);
+            } else {
+                perror("Failed to write to file");
+            }
         }
-
-        // memcpy(&fileargs, args, sizeof(struct HandleArgs));
-        // printf("\n--------- Price: %.2f ------------\n", args->productList[i].price);
-        // printf("In handle_all_stores in the middle....:\n");
-        // printf("StoreIndex: %d\n", args->storeIndex);
-        // printf("Cost: %.2lf\n", product->cost);
-        // printf("-------------------------------------------\n");
-        // Unlock the mutex after reading
         pthread_mutex_unlock(&dat_mutex);
         free(dat_path);
     }
-
-    // printf("Using args_copy after loop: %s\n", fileargs.productList[0].name);
-
-    // for (int i = 0; i < 3; i++) {
-    //     printf("Product %d:\n", i + 1);
-    //     printf("  Name: %s\n", fileargs.productList[i].name);
-    //     printf("  Price: %.2f\n", fileargs.productList[i].price);
-    //     printf("  Score: %.2f\n", fileargs.productList[i].score);
-    //     printf("  Entity: %d\n", fileargs.productList[i].entity);
-    //     printf("  Cost: %.2f\n", fileargs.productList[i].cost);
-    //     printf("  Date: %04d-%02d-%02d\n", fileargs.productList[i].date.year, fileargs.productList[i].date.month, fileargs.productList[i].date.day);
-    //     printf("  Time: %02d:%02d\n", fileargs.productList[i].time.hour, fileargs.productList[i].time.minutes);
-    //     printf("\n");
-    // }
-
-    // int bestCost = -1;
-    // struct Product *p;
-    // int bestIndex = 0;
-    // for (int i = 0; i < 3; i++)
-    // {
-    //     p = &args->productList[i];
-    //     // printf("\n--------------------- Price: %.2f\n", args->productList[i].price);
-    //     printf("p->cost : %f\n", p->cost);
-    //     if (p->cost > bestCost) {
-    //         bestIndex = i;
-    //     }
-    // }
-
-    // printf("The Best Shopping List \n");
-    // printf("  Name: %s\n", args->productList[bestIndex].name);
-    // printf("  Price: %.2f\n", args->productList[bestIndex].price);
-    // printf("  Score: %.2f\n", args->productList[bestIndex].score);
-    // printf("  Entity: %d\n", args->productList[bestIndex].entity);
-    // printf("  Cost: %.2f\n", args->productList[bestIndex].cost);
-    // printf("  Date: %d-%d-%d\n", args->productList[bestIndex].date.year, args->productList[bestIndex].date.month, args->productList[bestIndex].date.day);
-    // printf("  Time: %02d:%02d\n", args->productList[bestIndex].time.minutes, args->productList[bestIndex].time.seconds);
-    // printf("\n");
-
-    //     printf("bestCost: %d\n", bestCost);
-    //     printf("Costs[i]: %d\n", Costs[i]);
-    //     if (Costs[i] > bestCost) {
-    //         bestCost = Costs[i];
-    //         printf("bestCostc changes to: %d\n", bestCost);
-    //         bestShoppingList.cost = bestCost;
-    //         bestShoppingList.date = product->date;
-    //         bestShoppingList.entity = product->entity;
-    //         strcpy(bestShoppingList.name, product->name);
-    //         bestShoppingList.price = product->price;
-    //         bestShoppingList.score = product->score;
-    //         bestShoppingList.time = product->time;
-    //     }
-    // }
-    
-    // printf("The Best Shopping List \n");
-    // printf("In handle_all_stores after update:\n");
-    // printf("Name: %s\n", bestShoppingList.name);
-    // printf("Price: %.2lf\n", bestShoppingList.price);
-    // printf("Cost: %.2lf\n", bestShoppingList.cost);
     
 }
+
+void check_and_ask_to_buy(struct HandleArgs* args, struct Product* product) {
+    printf("price Threshold : %lf\n" , args->user->priceThreshold);
+    // if (args->user->priceThreshold != -1) {
+    //     // Check if the product's cost is less than or equal to the user's price threshold
+    //     if (product->cost <= args->user->priceThreshold) {
+    //         char ans;
+    //         printf("Your price threshold allows you to buy this product. Do you want to buy it? (Y or N): ");
+    //         scanf(" %c", &ans);  // Space before %c to consume any newline character
+    //         if (ans == 'Y' || ans == 'y') {
+    //             // Ask for a score between 1 and 5
+    //             int score;
+    //             do {
+    //                 printf("Please rate the product (1-5): ");
+    //                 scanf("%d", &score);
+    //             } while (score < 1 || score > 5);  // Ensure the score is valid
+
+    //             // Create a thread to update the product's file with the new score
+    //             // pthread_t update_thread;
+    //             // product->score = score;  // Set the new score
+
+    //             // Create a struct to pass to the thread
+    //             // struct HandleArgs* update_args = malloc(sizeof(struct HandleArgs));
+    //             // memcpy(update_args, args, sizeof(struct HandleArgs));  // Copy the args
+    //             // update_args->product = *product;  // Pass the updated product
+
+    //             // pthread_create(&update_thread, NULL, update_product_file, update_args);
+    //             // pthread_join(update_thread, NULL);  // Wait for the thread to complete
+    //         } else {
+    //             printf("You chose not to buy this product.\n");
+    //         }
+    //     } else {
+    //         printf("You cannot buy this product, as it exceeds your price threshold.\n");
+    //     }
+    // } else {
+    //     printf("No price threshold set, unable to check.\n");
+    // }
+}
+
+void* update_product_file(void* args_void) {
+    struct HandleArgs* args = (struct HandleArgs*)args_void;
+    struct ThreadDetails* thread_details = &args->user_details;  // Pass user details (ThreadDetails)
+
+    // Suppose the user has rated the product (score between 1-5)
+    int user_score = 4;  // Example user score (you can prompt user for this)
+    
+    // Update the score in the ThreadDetails
+    pthread_mutex_lock(&thread_details->mutex);  // Lock before updating
+    thread_details->new_score = user_score;
+    thread_details->updated = 1;  // Indicate that the thread can be woken up
+
+    // Signal the sleeping thread to wake up and process the update
+    pthread_cond_signal(&thread_details->cond_var);
+
+    pthread_mutex_unlock(&thread_details->mutex);  // Unlock after update
+
+    return NULL;
+}
+
 
