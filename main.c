@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <sys/syscall.h>   // For syscall and gettid
 #include <stdbool.h>
+#include <time.h>
 
 #define MAX_PRODUCTS 100
 // #define MAX_PATH_LEN 512
@@ -83,13 +84,20 @@ void get_user_details(struct User* user);
 void handle_all_stores(struct HandleArgs* args);
 void* handle_store(struct HandleArgs* args);
 void* handle_file(void* args);
-void check_and_ask_to_buy(struct HandleArgs* args, struct Product* product);
+void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 void* update_product_file(void* args_void);
 
 // Main function
 int main() {
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     struct User user = {.priceThreshold = -1};  // Declare a global 'user' variable
+    // struct ThreadDetails* thread_details = malloc(sizeof(struct ThreadDetails));
+    // thread_details->tid = tid;  // Store the thread ID
+    // thread_details->product = *product;    // Store product details
+    // thread_details->new_score = -1;        // Initialize new_score with invalid value
+    // thread_details->updated = 0;           // No update yet
+    // pthread_cond_init(&thread_details->cond_var, NULL);
+    // pthread_mutex_init(&thread_details->mutex, NULL);
     // do {
     // create process for user
     get_user_details(&user);
@@ -109,9 +117,11 @@ int main() {
     args.file_path = "./Dataset";
     handle_all_stores(&args);
 
+    // sleep(5);
     pthread_mutex_lock(&file_mutex);
     FILE *file = fopen("bestlist.dat", "rb");
-    if (file) {
+    if (file)
+    {
         fread(&args, sizeof(struct HandleArgs), 1, file);
         fclose(file);
         struct Product* product = &args.product;
@@ -124,10 +134,10 @@ int main() {
         printf("  Date: %04d-%02d-%02d\n", args.product.date.year, args.product.date.month, args.product.date.day);
         printf("  Time: %02d:%02d\n", args.product.time.hour, args.product.time.minutes);
         printf("------------------------------------\n");
-        check_and_ask_to_buy(&args, product);
+        check_and_ask_to_buy(&args, &user);
         
     } else {
-        perror("Failed to read from file");
+        printf("Error finding file");
     }
     pthread_mutex_unlock(&file_mutex);
 
@@ -228,20 +238,21 @@ void get_user_details(struct User* user) {
 void* handle_file(void* args_void) {
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     struct HandleArgs* args = (struct HandleArgs*)args_void;
-    struct User* user = args->user;
-    char* file_name = args->file_path;
     struct Product* product = &args->product;
+    struct User* user = args->user;
+    char* file_path = args->file_path;
 
     pid_t tid = syscall(SYS_gettid);
     pid_t category_pid = getpid();
 
-    char formatted_file_id[13];
-    snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", tid);
-
-    printf("PID %jd created thread for %s TID: %jd\n",
-            (intmax_t)category_pid, 
-            formatted_file_id, 
-            (intmax_t)syscall(SYS_gettid));
+    // Create a structure to store thread details
+    struct ThreadDetails* thread_details = malloc(sizeof(struct ThreadDetails));
+    thread_details->tid = tid;  // Store the thread ID
+    thread_details->product = *product;    // Store product details
+    thread_details->new_score = -1;        // Initialize new_score with invalid value
+    thread_details->updated = 0;           // No update yet
+    pthread_cond_init(&thread_details->cond_var, NULL);
+    pthread_mutex_init(&thread_details->mutex, NULL);
 
     char* namestr = NULL;
     int entity = 0;
@@ -254,9 +265,9 @@ void* handle_file(void* args_void) {
     pthread_mutex_lock(&file_mutex);
     int orderIndex;
 
-    FILE *file = fopen(file_name, "r");
+    FILE *file = fopen(file_path, "r");
     if (file == NULL) {
-        printf("Error opening file: %s\n", file_name);
+        printf("Error opening file: %s\n", file_path);
         pthread_mutex_unlock(&file_mutex);
         pthread_exit(NULL);
     } else {
@@ -286,9 +297,9 @@ void* handle_file(void* args_void) {
         fclose(file);
 
         char line2[256];
-        FILE *file2 = fopen(file_name, "r");
+        FILE *file2 = fopen(file_path, "r");
         if (file2 == NULL) {
-            printf("Error opening file: %s\n", file_name);
+            printf("Error opening file: %s\n", file_path);
             pthread_mutex_unlock(&file_mutex);
             pthread_exit(NULL);
         } else {
@@ -333,20 +344,196 @@ void* handle_file(void* args_void) {
         // If a valid product was found, print its details
         if (isProductFound) {
             product->cost = product->score*product->price;
-            // printf("Founded Product :\n");
-            // printf("Name : %s\n", product->name);
-            // printf("Price : %.2f\n", product->price);
-            // printf("Score : %.2f\n", product->score);
-            // printf("Entity : %d\n", product->entity);
-            // printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
-            // printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
-            // printf("Cost : %.2f\n", product->cost);
-            // printf("-----------------------------------------\n");
         }
     }
     pthread_mutex_unlock(&file_mutex);
+
+    // printf("thread_details->updated %d\n" , thread_details->updated);
+
+    // Sleep this thread (waiting for update)
+    while (!thread_details->updated) {
+        printf("Waiting for GORGALII");
+        pthread_cond_wait(&thread_details->cond_var, &thread_details->mutex);
+    }
+
+    // Lock the mutex before doing file operations
+    pthread_mutex_lock(&thread_details->mutex);
+
+    // Once woken up, update the product score and last-modified
+    if (thread_details->new_score != -1) {
+        // Calculate the new score
+        product->score = (product->score + thread_details->new_score) / 2.0;
+        // Update the last-modified date/time
+        product->date.year = thread_details->product.date.year;
+        product->date.month = thread_details->product.date.month;
+        product->date.day = thread_details->product.date.day;
+
+        product->time.hour = thread_details->product.time.hour;  // Example modification (you can use current time here)
+        product->time.minutes = thread_details->product.time.minutes;
+        product->time.seconds = thread_details->product.time.seconds;
+        
+        // Write the updated product info to the file
+        FILE *file = fopen(file_path, "r+");
+        if (file != NULL) {
+            char line[256];
+            int found_product = 0;
+            while (fgets(line, sizeof(line), file)) {
+                line[strcspn(line, "\n")] = 0;  // Remove newline character
+
+                // If product found, update score and last-modified
+                if (strncmp(line, "Name:", 5) == 0) {
+                    char* product_name = line + 6;
+                    if (strcmp(product_name, product->name) == 0) {
+                        found_product = 1;
+                        fseek(file, -strlen(line), SEEK_CUR);  // Move to the product's position
+                        fprintf(file, "Name: %s\n", product->name);
+                        fprintf(file, "Price: %.2f\n", product->price);
+                        fprintf(file, "Score: %.2f\n", product->score);
+                        fprintf(file, "Entity: %d\n", product->entity);
+                        fprintf(file, "Last Modified: %d-%02d-%02d %02d:%02d:%02d\n",
+                                product->date.year, product->date.month, product->date.day,
+                                product->time.hour, product->time.minutes, product->time.seconds);
+                        fflush(file);  // Make sure the data is written immediately
+                        break;
+                    }
+                }
+            }
+            fclose(file);
+        }
+    }
+
+    // Cleanup and unlock mutex
+    pthread_mutex_unlock(&thread_details->mutex);
+
+    // Free the thread details structure after use
+    free(thread_details);
+
     return NULL;
 }
+
+
+// void* handle_file(void* args_void) {
+//     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
+//     struct HandleArgs* args = (struct HandleArgs*)args_void;
+//     struct User* user = args->user;
+//     char* file_name = args->file_path;
+//     struct Product* product = &args->product;
+
+//     pid_t tid = syscall(SYS_gettid);
+//     pid_t category_pid = getpid();
+
+//     // char formatted_file_id[13];
+//     // snprintf(formatted_file_id, sizeof(formatted_file_id), "%06dID", tid);
+
+//     // printf("PID %jd created thread for %s TID: %jd\n",
+//     //         (intmax_t)category_pid, 
+//     //         formatted_file_id, 
+//     //         (intmax_t)syscall(SYS_gettid));
+
+//     char* namestr = NULL;
+//     int entity = 0;
+//     bool isNameFound = false;
+//     bool isEntityValid = false;
+//     bool isProductFound = false;
+//     char line[256];
+
+//     // Lock the file handling section to ensure exclusive access
+//     pthread_mutex_lock(&file_mutex);
+//     int orderIndex;
+
+//     FILE *file = fopen(file_name, "r");
+//     if (file == NULL) {
+//         printf("Error opening file: %s\n", file_name);
+//         pthread_mutex_unlock(&file_mutex);
+//         pthread_exit(NULL);
+//     } else {
+//         memset(product, 0, sizeof(struct Product));
+//         while (fgets(line, sizeof(line), file)) {
+//             line[strcspn(line, "\n")] = 0;
+//             if (strncmp(line, "Name:", 5) == 0) {
+//                 namestr = line + 6;  // Skip the "Name: " part
+//                 for (int i = 0; i < MAX_PRODUCTS; i++) {
+//                     if (strcmp(namestr, user->orderlist[i].name) == 0) {
+//                         strcpy(product->name, namestr);
+//                         isNameFound = true;
+//                         orderIndex = i;
+//                         break;
+//                     }
+//                 }
+//             }
+//             else if (strncmp(line, "Entity:", 7) == 0) {
+//                 entity = atoi(line + 8);
+//                 if (isNameFound && user->orderlist[orderIndex].quantity <= entity) {
+//                     product->entity = entity;
+//                     isEntityValid = true;
+//                     break;
+//                 }
+//             }
+//         }
+//         fclose(file);
+
+//         char line2[256];
+//         FILE *file2 = fopen(file_name, "r");
+//         if (file2 == NULL) {
+//             printf("Error opening file: %s\n", file_name);
+//             pthread_mutex_unlock(&file_mutex);
+//             pthread_exit(NULL);
+//         } else {
+//             if (isNameFound && isEntityValid && !isProductFound) {
+//                 while (fgets(line2, sizeof(line2), file2)) {
+//                     line2[strcspn(line2, "\n")] = 0;
+//                     if (strncmp(line2, "Price:", 6) == 0) {
+//                         product->price = atof(line2 + 7);
+//                     } else if (strncmp(line2, "Score:", 6) == 0) {
+//                         product->score = atof(line2 + 7);
+//                     } else if (strncmp(line2, "Last Modified:", 14) == 0) {
+//                         char *date_time_str = line2 + 15;
+//                         char *date_str = strtok(date_time_str, " ");
+//                         char *time_str = strtok(NULL, " ");
+
+//                         if (date_str && time_str) {
+//                             int date_tokens_count = 0;
+//                             char **date_tokens = get_slices_input(date_str, &date_tokens_count, "-");
+//                             if (date_tokens_count == 3) {
+//                                 product->date.year = atoi(date_tokens[0]);
+//                                 product->date.month = atoi(date_tokens[1]);
+//                                 product->date.day = atoi(date_tokens[2]);
+//                             }
+//                             free(date_tokens);
+
+//                             int time_tokens_count = 0;
+//                             char **time_tokens = get_slices_input(time_str, &time_tokens_count, ":");
+//                             if (time_tokens_count == 3) {
+//                                 product->time.hour = atoi(time_tokens[0]);
+//                                 product->time.minutes = atoi(time_tokens[1]);
+//                                 product->time.seconds = atoi(time_tokens[2]);
+//                             }
+//                             free(time_tokens);
+//                         }
+//                     }
+//                 }
+//                 isProductFound = true;
+//             }
+//         }
+//         fclose(file2);
+
+//         // If a valid product was found, print its details
+//         if (isProductFound) {
+//             product->cost = product->score*product->price;
+//             // printf("Founded Product :\n");
+//             // printf("Name : %s\n", product->name);
+//             // printf("Price : %.2f\n", product->price);
+//             // printf("Score : %.2f\n", product->score);
+//             // printf("Entity : %d\n", product->entity);
+//             // printf("Date : %d-%d-%d\n", product->date.year, product->date.month, product->date.day);
+//             // printf("Time : %d:%d:%d\n", product->time.hour, product->time.minutes, product->time.seconds);
+//             // printf("Cost : %.2f\n", product->cost);
+//             // printf("-----------------------------------------\n");
+//         }
+//     }
+//     pthread_mutex_unlock(&file_mutex);
+//     return NULL;
+// }
 
 void* handle_category(struct HandleArgs* args) {
     pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -474,7 +661,7 @@ void* handle_store(struct HandleArgs* args) {
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
-                printf("PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
+                // printf("PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
                 handle_category(args);
                 exit(EXIT_SUCCESS);
             default:
@@ -546,8 +733,8 @@ void handle_all_stores(struct HandleArgs* args) {
             default:
                 // Parent process stores the child PID to wait for it later
                 store_pids[i] = store_pid;
-                printf("PID %jd created child for Store%d PID:%jd\n", 
-                       (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
+                // printf("PID %jd created child for Store%d PID:%jd\n", 
+                //        (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
                 break;
         }
     }
@@ -603,42 +790,69 @@ void handle_all_stores(struct HandleArgs* args) {
     
 }
 
-void check_and_ask_to_buy(struct HandleArgs* args, struct Product* product) {
-    printf("price Threshold : %lf\n" , args->user->priceThreshold);
-    // if (args->user->priceThreshold != -1) {
-    //     // Check if the product's cost is less than or equal to the user's price threshold
-    //     if (product->cost <= args->user->priceThreshold) {
-    //         char ans;
-    //         printf("Your price threshold allows you to buy this product. Do you want to buy it? (Y or N): ");
-    //         scanf(" %c", &ans);  // Space before %c to consume any newline character
-    //         if (ans == 'Y' || ans == 'y') {
-    //             // Ask for a score between 1 and 5
-    //             int score;
-    //             do {
-    //                 printf("Please rate the product (1-5): ");
-    //                 scanf("%d", &score);
-    //             } while (score < 1 || score > 5);  // Ensure the score is valid
+void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
+    printf("price Threshold : %lf\n" , user->priceThreshold);
+    struct Product* product = &args->product;
+    // printf("The Content On bestlist.dat\n");
+    // printf("  Name: %s\n", args->product.name);
+    // printf("  Price: %.2f\n", args->product.price);
+    // printf("  Score: %.2f\n", args->product.score);
+    // printf("  Entity: %d\n", args->product.entity);
+    // printf("  Cost: %.2f\n", args->product.cost);
+    // printf("  Date: %04d-%02d-%02d\n", args->product.date.year, args->product.date.month, args->product.date.day);
+    // printf("  Time: %02d:%02d\n", args->product.time.hour, args->product.time.minutes);
+    // printf("------------------------------------\n");
+    if (user->priceThreshold != -1) {
+        if (product->cost <= user->priceThreshold) {
+            char ans;
+            printf("Your price threshold allows you to buy this product. Do you want to buy it? (Y or N): ");
+            scanf(" %c", &ans);  // Space before %c to consume any newline character
+            if (ans == 'Y' || ans == 'y') {
+                // Ask for a score between 1 and 5
+                int score;
+                do {
+                    printf("Please rate the product (1-5): ");
+                    scanf("%d", &score);
+                } while (score < 1 || score > 5);  // Ensure the score is valid
+                product->score = score;  // Set the new score
+                // Get the current time
+                time_t rawtime;
+                struct tm * timeinfo;
+                
+                // Get the current system time
+                time(&rawtime);
+                
+                // Convert the time to local time
+                timeinfo = localtime(&rawtime);
+                
+                // Set the product's date and time to the current date and time
+                product->date.year = 1900 + timeinfo->tm_year;  // tm_year is years since 1900
+                product->date.month = timeinfo->tm_mon + 1;     // tm_mon is 0-based
+                product->date.day = timeinfo->tm_mday;
+                
+                product->time.hour = timeinfo->tm_hour;
+                product->time.minutes = timeinfo->tm_min;
+                product->time.seconds = timeinfo->tm_sec;
 
-    //             // Create a thread to update the product's file with the new score
-    //             // pthread_t update_thread;
-    //             // product->score = score;  // Set the new score
+                // Create a thread to update the product's file with the new score
+                pthread_t update_thread;
 
-    //             // Create a struct to pass to the thread
-    //             // struct HandleArgs* update_args = malloc(sizeof(struct HandleArgs));
-    //             // memcpy(update_args, args, sizeof(struct HandleArgs));  // Copy the args
-    //             // update_args->product = *product;  // Pass the updated product
+                // Create a struct to pass to the thread
+                struct HandleArgs* update_args = malloc(sizeof(struct HandleArgs));
+                memcpy(update_args, args, sizeof(struct HandleArgs));  // Copy the args
+                update_args->product = *product;  // Pass the updated product
 
-    //             // pthread_create(&update_thread, NULL, update_product_file, update_args);
-    //             // pthread_join(update_thread, NULL);  // Wait for the thread to complete
-    //         } else {
-    //             printf("You chose not to buy this product.\n");
-    //         }
-    //     } else {
-    //         printf("You cannot buy this product, as it exceeds your price threshold.\n");
-    //     }
-    // } else {
-    //     printf("No price threshold set, unable to check.\n");
-    // }
+                pthread_create(&update_thread, NULL, update_product_file, update_args);
+                pthread_join(update_thread, NULL);  // Wait for the thread to complete
+            } else {
+                printf("You chose not to buy this product.\n");
+            }
+        } else {
+            printf("You cannot buy this product, as it exceeds your price threshold.\n");
+        }
+    } else {
+        printf("No price threshold set, unable to check.\n");
+    }
 }
 
 void* update_product_file(void* args_void) {
@@ -660,5 +874,4 @@ void* update_product_file(void* args_void) {
 
     return NULL;
 }
-
 
