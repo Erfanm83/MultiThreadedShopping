@@ -11,6 +11,10 @@
 #include <stdbool.h>
 #include <time.h>
 
+
+#define MAX_FILENAME 1000
+#define MAX_MESSAGE 1000
+
 #define MAX_PRODUCTS 100
 // #define MAX_PATH_LEN 512
 #define MAX_PATH_LEN 1024
@@ -91,6 +95,12 @@ int read_product_details(char* file_path, struct Product* product, struct Order*
 void parse_date_time(char* date_time_str, struct Product* product);
 void read_additional_product_info(FILE* file, struct Product* product);
 
+int create_file_log(char *name, int order);
+int file_exists(const char *filename);
+int order_Chandom(char *name, int kodom);
+int Log(struct User* user);
+void Write_in_log(char *message, char *filename);
+
 // Main function
 int main() {
     bool hasWritten = false;
@@ -102,70 +112,71 @@ int main() {
     // create process for user
     int orderNum = get_user_details(&user);
     printf("User Input Completed!\n");
-    for (int i = 0; i < orderNum; i++) {
-        userargs.user = &user;
-        userargs.file_path = "./Dataset";
-        hasWritten = handle_all_stores(&userargs);
-    }
+    userargs.user = &user;
+    userargs.file_path = "./Dataset";
+    hasWritten = handle_all_stores(&userargs);
+    // for (int i = 0; i < orderNum; i++) {
+        
+    // }
 
-    if (hasWritten) {
-        // Lock the mutex before accessing the shared file
-        pthread_mutex_lock(&file_mutex);
+    // if (hasWritten) {
+    //     // Lock the mutex before accessing the shared file
+    //     pthread_mutex_lock(&file_mutex);
 
-        // Open bestlist.dat to read the stored contents
-        FILE *file2 = fopen("bestlist.dat", "rb");
-        if (file2 != NULL) {
-            int bestStore = -1;
-            int bestCost = 0;
+    //     // Open bestlist.dat to read the stored contents
+    //     FILE *file2 = fopen("bestlist.dat", "rb");
+    //     if (file2 != NULL) {
+    //         int bestStore = -1;
+    //         int bestCost = 0;
             
-            // Read the bestStore and bestCost
-            if (fread(&bestStore, sizeof(int), 1, file2) != 1) {
-                perror("Failed to read bestStore from file");
-                fclose(file2);
-                pthread_mutex_unlock(&file_mutex); // Unlock before returning
-                return -1;
-            }
-            if (fread(&bestCost, sizeof(int), 1, file2) != 1) {
-                perror("Failed to read bestCost from file");
-                fclose(file2);
-                pthread_mutex_unlock(&file_mutex); // Unlock before returning
-                return -1;
-            }
+    //         // Read the bestStore and bestCost
+    //         if (fread(&bestStore, sizeof(int), 1, file2) != 1) {
+    //             perror("Failed to read bestStore from file");
+    //             fclose(file2);
+    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
+    //             return -1;
+    //         }
+    //         if (fread(&bestCost, sizeof(int), 1, file2) != 1) {
+    //             perror("Failed to read bestCost from file");
+    //             fclose(file2);
+    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
+    //             return -1;
+    //         }
 
-            // Print the best store and cost
-            printf("Best Store: %d\n", bestStore);
-            printf("Best Cost: %d\n", bestCost);
+    //         // Print the best store and cost
+    //         printf("Best Store: %d\n", bestStore);
+    //         printf("Best Cost: %d\n", bestCost);
 
-            // Read the HandleArgs structure
-            if (fread(&userargs, sizeof(struct HandleArgs), 1, file2) != 1) {
-                perror("Failed to read HandleArgs structure from file");
-                fclose(file2);
-                pthread_mutex_unlock(&file_mutex); // Unlock before returning
-                return -1;
-            }
+    //         // Read the HandleArgs structure
+    //         if (fread(&userargs, sizeof(struct HandleArgs), 1, file2) != 1) {
+    //             perror("Failed to read HandleArgs structure from file");
+    //             fclose(file2);
+    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
+    //             return -1;
+    //         }
 
-            // Print details from HandleArgs (excluding file_path for now)
-            printf("HandleArgs Details:\n");
-            printf("User Address: %p\n", userargs.user);  // For demonstration, you may print other fields as needed.
+    //         // Print details from HandleArgs (excluding file_path for now)
+    //         printf("HandleArgs Details:\n");
+    //         printf("User Address: %p\n", userargs.user);  // For demonstration, you may print other fields as needed.
 
-            // Read the file_path string (it’s stored as a null-terminated string)
-            char filePath[256]; // Buffer to store file_path string
-            if (fread(filePath, sizeof(char), 256, file2) != 1) {
-                perror("Failed to read file_path from file");
-                fclose(file2);
-                pthread_mutex_unlock(&file_mutex); // Unlock before returning
-                return -1;
-            }
-            printf("File Path: %s\n", filePath);
+    //         // Read the file_path string (it’s stored as a null-terminated string)
+    //         char filePath[256]; // Buffer to store file_path string
+    //         if (fread(filePath, sizeof(char), 256, file2) != 1) {
+    //             perror("Failed to read file_path from file");
+    //             fclose(file2);
+    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
+    //             return -1;
+    //         }
+    //         printf("File Path: %s\n", filePath);
 
-            fclose(file2);
-        } else {
-            perror("Failed to open bestlist.dat for reading");
-        }
+    //         fclose(file2);
+    //     } else {
+    //         perror("Failed to open bestlist.dat for reading");
+    //     }
 
-        // Unlock the mutex after accessing the shared file
-        pthread_mutex_unlock(&file_mutex);
-    }
+    //     // Unlock the mutex after accessing the shared file
+    //     pthread_mutex_unlock(&file_mutex);
+    // }
     // } while(1);
     return 0;
 }
@@ -259,6 +270,9 @@ int get_user_details(struct User* user) {
         }
         free(tokens);
     }
+
+    Log(user);
+
     user->totalOrder = count;
     return count;
 }
@@ -270,16 +284,31 @@ void* handle_file(void* args_void) {
     struct Product* product = &args->product;
     struct User* user = args->user;
     char* file_path = args->file_path;
-    int answer = 0;
-    int bestCost = -1;
-    float costStores[3] = {0};
+    int answer = -1;
+    int storeNumber;
+    bool flag = false;
+
+    pid_t tid = syscall(SYS_gettid);
+    pid_t category_pid = getpid();
+    char formatted_file_id[13];
+    char filename[MAX_FILENAME];
+    int order_chandommm = order_Chandom(args->user->username, 0);
+    sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
+    char message[MAX_MESSAGE];
+    sprintf(message, "PID %jd created thread for %s TID: %jd\n",
+            (intmax_t)category_pid,
+            formatted_file_id,
+            (intmax_t)syscall(SYS_gettid));
+    Write_in_log(message, filename);
 
     pthread_mutex_lock(&file_mutex);
 
-    // memset(product, 0, sizeof(struct Product));
+    // printf("user->totalOrder %d\n",user->totalOrder);
+
     for (int i = 0; i < user->totalOrder; i++) {
         answer = read_product_details(file_path, product, &user->orderlist[i]);
         if (answer % 10 == 1) {
+            printf("file_path %s \n", file_path);
             // Open file again to read additional details
             FILE* file2 = fopen(file_path, "r");
             if (file2 == NULL) {
@@ -290,66 +319,54 @@ void* handle_file(void* args_void) {
 
             read_additional_product_info(file2, product);
             fclose(file2);
-
-            // If a valid product was found, calculate its cost
             product->cost = product->score * product->price;
-            // args->productlist[i] = malloc(sizeof(struct Product));
-            // if (args->productlist[i] == NULL) {
-            //     perror("malloc failed");
-            //     exit(EXIT_FAILURE);
-            // }
+
             memcpy(&args->productlist[i], product, sizeof(struct Product));
-            int storeNumber = answer / 10;
-            bestCost = args->productlist[i].cost;
+            storeNumber = answer / 10;
 
-            char* dat_path = malloc(MAX_PATH_LEN * sizeof(char));
-            if (dat_path == NULL) {
-                perror("malloc failed");
-                exit(EXIT_FAILURE);
-            }
+            
+            // printf("dakhel if flag\n");
+            
             pthread_mutex_lock(&dat_mutex);
-            costStores[i] += args->productlist[i].cost;
-            pthread_mutex_unlock(&dat_mutex);
+            char* store_path = malloc(MAX_PATH_LEN * sizeof(char));
+            if (store_path == NULL) {
+                perror("malloc failed");
+                pthread_exit(NULL);
+            }
+            snprintf(store_path, MAX_PATH_LEN, "store%d.txt" , storeNumber);
+            FILE *file3 = fopen(store_path, "a+");
+            if (file3 != NULL) {
+                char line[256];
+                rewind(file3);
+                if (fgets(line, sizeof(line), file3) == NULL || strncmp(line, "Store", 5) != 0) {
+                    fprintf(file3, "Store %d\n", storeNumber);
+                    fprintf(file3, "username: %s\n", args->user->username);
+                    fprintf(file3, "file path : %s\n", args->file_path);
+                    fprintf(file3, "------------------------------------\n");
+                }
+                fprintf(file3, "productlist : \n");
+                if (product->price != 0.0) {
+                    fprintf(file3, "  Name: %s\n", product->name);
+                    fprintf(file3, "  Price: %.2f\n", product->price);
+                    fprintf(file3, "  Score: %.2f\n", product->score);
+                    fprintf(file3, "  Entity: %d\n", product->entity);
+                    fprintf(file3, "  Cost: %.2f\n", product->cost);
+                    fprintf(file3, "  Date: %04d-%02d-%02d\n", product->date.year, product->date.month, product->date.day);
+                    fprintf(file3, "  Time: %02d:%02d\n", product->time.hour, product->time.minutes);
+                    fprintf(file3, "  file_path: %s\n", args->file_path);
+                    fprintf(file3, "------------------------------------\n");
+                }
+                fclose(file3);
+                pthread_mutex_unlock(&dat_mutex);
+            } else {
+                perror("Failed to write to file");
+            }
+            break;
         }
     }
-
-    // finding the best Store to Buy
-    bestCost = 0;
-    bestStore = -1;
-    for (int i = 0; i < 3; i++) {
-        if (costStores[i] > bestCost) {
-            bestCost = costStores[i];
-            bestStore = i;
-        }
-    }
-    snprintf(dat_path, MAX_PATH_LEN, "%s_Orderlist%d.txt" , args->user->username , );
-    FILE *file3 = fopen(dat_path, "a");
-    if (file3 != NULL) {
-        fprintf(file3, "P %s\n", args->productlist[i].name);
-        fprintf(file3, "Product Name: %s\n", args->productlist[i].name);
-        fprintf(file3, "Product Price: %.2f\n", args->productlist[i].price);
-        fprintf(file3, "Product Cost: %.2f\n", args->productlist[i].cost);
-        fprintf(file3, "---\n");
-        fclose(file3);
-        pthread_mutex_unlock(&dat_mutex);
-    } else {
-        perror("Failed to write to file");
-    }
+    
+    pthread_mutex_unlock(&dat_mutex);
     pthread_mutex_unlock(&file_mutex);
-
-    // for (int i = 0; i < user->totalOrder; i++) {
-    //     struct Product* product = &args->productlist[i];
-    //     printf("The Content On productlist\n");
-    //     printf("  Name: %s\n", product->name);
-    //     printf("  Price: %.2f\n", product->price);
-    //     printf("  Score: %.2f\n", product->score);
-    //     printf("  Entity: %d\n", product->entity);
-    //     printf("  Cost: %.2f\n", product->cost);
-    //     printf("  Date: %04d-%02d-%02d\n", product->date.year, product->date.month, product->date.day);
-    //     printf("  Time: %02d:%02d\n", product->time.hour, product->time.minutes);
-    //     printf("------------------------------------\n");
-    // }
-
     return NULL;
 }
 
@@ -386,6 +403,7 @@ void* handle_category(struct HandleArgs* args) {
         if (dir->d_type != DT_DIR) {
             // Allocate memory for thread_args for each thread to ensure thread-safety
             struct HandleArgs* thread_args = malloc(sizeof(struct HandleArgs));
+            memcpy(thread_args, args, sizeof(struct HandleArgs));
             if (thread_args == NULL) {
                 perror("Failed to allocate memory for thread_args");
                 closedir(d);
@@ -447,6 +465,13 @@ void* handle_store(struct HandleArgs* args) {
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
+                char filename[MAX_FILENAME];
+                int order_chandommm = order_Chandom(args->user->username,0);
+                sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
+                char message[MAX_MESSAGE];
+                sprintf(message, "PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
+                Write_in_log(message, filename);
+
                 handle_category(args);
                 exit(EXIT_SUCCESS);
             default:
@@ -493,6 +518,15 @@ bool handle_all_stores(struct HandleArgs* args) {
 
     pid_t store_pids[3] = {0};  // Array to store PIDs of the child processes
 
+    char filename[MAX_FILENAME];
+    int order_chandommm = order_Chandom(args->user->username,0);
+    sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
+    char message[MAX_MESSAGE];
+    sprintf(message, "%s created PID: %jd \n", args->user->username,
+            (intmax_t)getppid());
+
+    Write_in_log(message, filename);
+
     // Create child processes for each store
     for (int i = 0; i < 3; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
@@ -517,6 +551,14 @@ bool handle_all_stores(struct HandleArgs* args) {
             default:
                 // Parent process stores the child PID to wait for it later
                 store_pids[i] = store_pid;
+                char filename[MAX_FILENAME];
+                int order_chandommm = order_Chandom(args->user->username,0);
+                sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
+                char message[MAX_MESSAGE];
+                sprintf(message, "PID %jd created child for Store%d PID:%jd\n",
+                       (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
+
+                Write_in_log(message, filename);
                 // printf("PID %jd created child for Store%d PID:%jd\n", 
                 //        (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
                 break;
@@ -540,93 +582,35 @@ bool handle_all_stores(struct HandleArgs* args) {
     }
 
     // Now that all child processes are done, you can safely read from the .dat files
-    for (int i = 0; i < 3; i++) {
-        // read store%d.dat file
-        dat_path = malloc(MAX_PATH_LEN * sizeof(char));
-        if (dat_path == NULL) {
-            perror("malloc failed");
-            exit(EXIT_FAILURE);
-        }
-        snprintf(dat_path, MAX_PATH_LEN, "store%d.dat", i + 1);
-        pthread_mutex_lock(&dat_mutex);
-        FILE *file = fopen(dat_path, "rb");
-        if (file != NULL) {
-            fread(productlist, sizeof(struct Product), MAX_PRODUCTS, file);
-            fclose(file);
-        } else {
-            perror("Failed to read from file");
-        }
+    // for (int i = 0; i < 3; i++) {
+    //     // read store%d.dat file
+    //     dat_path = malloc(MAX_PATH_LEN * sizeof(char));
+    //     if (dat_path == NULL) {
+    //         perror("malloc failed");
+    //         exit(EXIT_FAILURE);
+    //     }
+    //     snprintf(dat_path, MAX_PATH_LEN, "store%d.dat", i + 1);
+    //     pthread_mutex_lock(&dat_mutex);
+    //     FILE *file = fopen(dat_path, "rb");
+    //     if (file != NULL) {
+    //         fread(productlist, sizeof(struct Product), MAX_PRODUCTS, file);
+    //         fclose(file);
+    //     } else {
+    //         perror("Failed to read from file");
+    //     }
 
-        // read product objects of productlist
-        for (int j = 0; j < args->user->totalOrder; j++) {
-            productlist[j] = malloc(sizeof(struct Product));
-            if (productlist[j] == NULL) {
-                perror("malloc failed");
-                exit(EXIT_FAILURE);
-            }
-            memcpy(product, productlist[j], sizeof(struct Product));  // Copy product data into allocated space
+    //     // read product objects of productlist
+    //     for (int j = 0; j < args->user->totalOrder; j++) {
+    //         productlist[j] = malloc(sizeof(struct Product));
+    //         if (productlist[j] == NULL) {
+    //             perror("malloc failed");
+    //             exit(EXIT_FAILURE);
+    //         }
+    //         memcpy(product, productlist[j], sizeof(struct Product));  // Copy product data into allocated space
 
-            costStores[i] += product->cost;
-        }
-    }
-
-    // finding the best Store to Buy
-    bestCost = 0;
-    bestStore = -1;
-    for (int i = 0; i < 3; i++) {
-        if (costStores[i] > bestCost) {
-            bestCost = costStores[i];
-            bestStore = i;
-        }
-    }
-
-    args->storeIndex = bestStore;
-    
-    FILE *file2 = fopen("bestlist.dat", "ab");
-    if (file2 != NULL) {
-        // Write the best store index
-        if (fwrite(&bestStore, sizeof(int), 1, file2) != 1) {
-            perror("Failed to write bestStore to file");
-            fclose(file2);
-            return false;  // Early exit if the write fails
-        }
-
-        // Write the best cost
-        if (fwrite(&bestCost, sizeof(int), 1, file2) != 1) {
-            perror("Failed to write bestCost to file");
-            fclose(file2);
-            return false;  // Early exit if the write fails
-        }
-
-        // Write the args structure (this writes the entire structure except pointers and dynamic data)
-        if (fwrite(args, sizeof(struct HandleArgs), 1, file2) != 1) {
-            perror("Failed to write args structure to file");
-            fclose(file2);
-            return false;  // Early exit if the write fails
-        }
-
-        // Write the file_path string (ensure null termination)
-        if (args->file_path != NULL) {
-            if (fwrite(args->file_path, strlen(args->file_path) + 1, 1, file2) != 1) {
-                perror("Failed to write file_path to file");
-                fclose(file2);
-                return false;  // Early exit if the write fails
-            }
-        } else {
-            // Handle case where file_path might be NULL (to prevent issues)
-            perror("args->file_path is NULL");
-            fclose(file2);
-            return false;
-        }
-
-        // Close the file after writing
-        fclose(file2);
-        hasWritten = true;
-    } else {
-        perror("Failed to open bestlist.dat for writing");
-    }
-
-    
+    //         costStores[i] += product->cost;
+    //     }
+    // }
     pthread_mutex_unlock(&dat_mutex);
     free(dat_path);
     return hasWritten;
@@ -798,3 +782,72 @@ void parse_date_time(char* date_time_str, struct Product* product) {
     }
 }
 
+int create_file_log(char *name, int order){
+    char filename[200];
+    sprintf(filename, "./Dataset/%s_order%d.log", name, order);
+    FILE *logFile = fopen(filename, "a");
+
+    if (logFile == NULL) {
+        printf("خطا در باز کردن فایل.\n");
+        return 1;
+    }
+
+    fclose(logFile);
+    return 0;
+}
+
+int file_exists(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file) {
+        fclose(file);
+        return 1; // فایل وجود دارد
+    }
+    return 0; // فایل وجود ندارد
+}
+
+int order_Chandom(char *name, int kodom){
+    int order = 0;
+    char filename[200];
+
+    // بررسی نام فایلهای موجود در دایرکتوری ./Dataset/
+    while (1) {
+        sprintf(filename, "./Dataset/%s_order%d.log", name, order);
+        if (!file_exists(filename)) {
+            // اگر فایل وجود نداشته باشد، شماره سفارش پیدا شده است
+            break;
+        }
+        order++;  // اگر فایل وجود داشت، شماره سفارش را افزایش بده
+    }
+
+    if(kodom == 0){
+        order--;
+        return order;
+    }else if (kodom == 1)
+    {
+        return order;
+    }
+
+}
+
+int Log(struct User* user){
+
+    char *name = user->username;
+    int Add_order = order_Chandom(name, 1);
+
+    int check = create_file_log(name, Add_order);
+
+}
+
+void Write_in_log(char *message, char *filename){
+    FILE *logFile = fopen(filename, "a");
+
+    if (logFile == NULL) {
+        printf("خطا در باز کردن فایل.\n");
+        return ;
+    }
+
+    fprintf(logFile, "%s", message);
+
+    fclose(logFile);
+
+}

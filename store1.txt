@@ -1,12 +1,67 @@
-Product Name: Smartphone
-Product Price: 719.00
-Product Cost: 1509.90
----
-Product Name: Jeans
-Product Price: 270.96
-Product Cost: 1219.32
----
-Product Name: Dress
-Product Price: 188.85
-Product Cost: 849.83
----
+Store 1
+username: Erfan
+file path : ./Dataset/Store1/Apparel/161.txt
+------------------------------------
+productlist : 
+  Name: Jeans
+  Price: 270.96
+  Score: 4.50
+  Entity: 52
+  Cost: 1219.32
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Dress
+  Price: 188.85
+  Score: 4.50
+  Entity: 12
+  Cost: 849.83
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Lipstick
+  Price: 407.99
+  Score: 3.70
+  Entity: 64
+  Cost: 1509.56
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Smartphone
+  Price: 719.00
+  Score: 2.10
+  Entity: 69
+  Cost: 1509.90
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Jeans
+  Price: 270.96
+  Score: 4.50
+  Entity: 52
+  Cost: 1219.32
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Dress
+  Price: 188.85
+  Score: 4.50
+  Entity: 12
+  Cost: 849.83
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
+productlist : 
+  Name: Bacon Burger
+  Price: 598.04
+  Score: 2.80
+  Entity: 94
+  Cost: 1674.51
+  Date: 2024-11-23
+  Time: 18:50
+------------------------------------
