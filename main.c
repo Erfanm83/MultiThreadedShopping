@@ -690,6 +690,8 @@ void handle_all_stores(struct HandleArgs* args) {
         args->productList[i].date = product->date;
         args->productList[i].time = product->time;
 
+        
+
         FILE *file2 = fopen("bestlist.dat", "wb");
         if (file2 != NULL) {
             fwrite(args, sizeof(struct HandleArgs), 1, file);
