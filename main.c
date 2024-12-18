@@ -529,6 +529,15 @@ bool handle_all_stores(struct HandleArgs* args) {
 
     pid_t store_pids[3] = {0};  // Array to store PIDs of the child processes
 
+    char filename[MAX_FILENAME];
+    int order_chandommm = order_Chandom(args->user->username,0);
+    sprintf(filename, "./Dataset/%s_order%d.log", args->user->username, order_chandommm);
+    char message[MAX_MESSAGE];
+    sprintf(message, "%s created PID: %jd \n", args->user->username,
+            (intmax_t)getppid());
+
+    Write_in_log(message, filename);
+
     // Create child processes for each store
     for (int i = 0; i < 3; i++) {
         args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
