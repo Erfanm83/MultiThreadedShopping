@@ -85,9 +85,9 @@ int get_user_details(struct User* user);
 bool handle_all_stores(struct HandleArgs* args);
 void* handle_store(struct HandleArgs* args);
 void* handle_file(void* args);
-void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
+// void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 void* update_product_file(void* args_void);
-bool read_product_details(FILE* file, struct Product* product, struct Order* order);
+int read_product_details(char* file_path, struct Product* product, struct Order* order);
 void parse_date_time(char* date_time_str, struct Product* product);
 void read_additional_product_info(FILE* file, struct Product* product);
 
@@ -270,23 +270,16 @@ void* handle_file(void* args_void) {
     struct Product* product = &args->product;
     struct User* user = args->user;
     char* file_path = args->file_path;
+    int answer = 0;
+    int bestCost = -1;
+    float costStores[3] = {0};
 
     pthread_mutex_lock(&file_mutex);
 
-    // Open file and read product details
-    FILE* file = fopen(file_path, "r");
-    if (file == NULL) {
-        printf("Error opening file: %s\n", file_path);
-        pthread_mutex_unlock(&file_mutex);
-        pthread_exit(NULL);
-    }
-
-    memset(product, 0, sizeof(struct Product));
-
+    // memset(product, 0, sizeof(struct Product));
     for (int i = 0; i < user->totalOrder; i++) {
-        if (read_product_details(file, product, &user->orderlist[i])) {
-            fclose(file);
-            
+        answer = read_product_details(file_path, product, &user->orderlist[i]);
+        if (answer % 10 == 1) {
             // Open file again to read additional details
             FILE* file2 = fopen(file_path, "r");
             if (file2 == NULL) {
@@ -300,36 +293,62 @@ void* handle_file(void* args_void) {
 
             // If a valid product was found, calculate its cost
             product->cost = product->score * product->price;
-            args->productlist[i] = malloc(sizeof(struct Product));
-            if (args->productlist[i] == NULL) {
+            // args->productlist[i] = malloc(sizeof(struct Product));
+            // if (args->productlist[i] == NULL) {
+            //     perror("malloc failed");
+            //     exit(EXIT_FAILURE);
+            // }
+            memcpy(&args->productlist[i], product, sizeof(struct Product));
+            int storeNumber = answer / 10;
+            bestCost = args->productlist[i].cost;
+
+            char* dat_path = malloc(MAX_PATH_LEN * sizeof(char));
+            if (dat_path == NULL) {
                 perror("malloc failed");
                 exit(EXIT_FAILURE);
             }
-            memcpy(args->productlist[i], product, sizeof(struct Product));  // Copy product data into allocated space
-        } else {
-            fclose(file);
+            pthread_mutex_lock(&dat_mutex);
+            costStores[i] += args->productlist[i].cost;
+            pthread_mutex_unlock(&dat_mutex);
         }
     }
-    pthread_mutex_unlock(&file_mutex);
 
-    printf("args->storeIndex: %d\n", args->storeIndex);
-
-    char* dat_path = malloc(MAX_PATH_LEN * sizeof(char));
-    if (dat_path == NULL) {
-        perror("malloc failed");
-        exit(EXIT_FAILURE);
+    // finding the best Store to Buy
+    bestCost = 0;
+    bestStore = -1;
+    for (int i = 0; i < 3; i++) {
+        if (costStores[i] > bestCost) {
+            bestCost = costStores[i];
+            bestStore = i;
+        }
     }
-    pthread_mutex_lock(&dat_mutex);
-    snprintf(dat_path, MAX_PATH_LEN, "store%d.dat", args->storeIndex);
-    FILE *file3 = fopen(dat_path, "ab");
+    snprintf(dat_path, MAX_PATH_LEN, "%s_Orderlist%d.txt" , args->user->username , );
+    FILE *file3 = fopen(dat_path, "a");
     if (file3 != NULL) {
-        fwrite(args->productlist, sizeof(struct HandleArgs), 1, file3);
+        fprintf(file3, "P %s\n", args->productlist[i].name);
+        fprintf(file3, "Product Name: %s\n", args->productlist[i].name);
+        fprintf(file3, "Product Price: %.2f\n", args->productlist[i].price);
+        fprintf(file3, "Product Cost: %.2f\n", args->productlist[i].cost);
+        fprintf(file3, "---\n");
         fclose(file3);
         pthread_mutex_unlock(&dat_mutex);
     } else {
         perror("Failed to write to file");
     }
-    pthread_mutex_unlock(&dat_mutex);
+    pthread_mutex_unlock(&file_mutex);
+
+    // for (int i = 0; i < user->totalOrder; i++) {
+    //     struct Product* product = &args->productlist[i];
+    //     printf("The Content On productlist\n");
+    //     printf("  Name: %s\n", product->name);
+    //     printf("  Price: %.2f\n", product->price);
+    //     printf("  Score: %.2f\n", product->score);
+    //     printf("  Entity: %d\n", product->entity);
+    //     printf("  Cost: %.2f\n", product->cost);
+    //     printf("  Date: %04d-%02d-%02d\n", product->date.year, product->date.month, product->date.day);
+    //     printf("  Time: %02d:%02d\n", product->time.hour, product->time.minutes);
+    //     printf("------------------------------------\n");
+    // }
 
     return NULL;
 }
@@ -380,7 +399,7 @@ void* handle_category(struct HandleArgs* args) {
             thread_args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
             snprintf(thread_args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
 
-            printf("args->storeIndex: %s\n", args->storeIndex);
+            // printf("args->storeIndex in handle_category: %d\n", args->storeIndex);
             // Create a thread to handle the file
             pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
 
@@ -420,6 +439,7 @@ void* handle_store(struct HandleArgs* args) {
             exit(EXIT_FAILURE);
         }
         snprintf(args->file_path, MAX_PATH_LEN, "%s/%s", store_path, category_paths[i]);
+        // printf("args->storeIndex in handle_store: %d\n", args->storeIndex);
         // Create a process for each store
         category_pid = fork();
         switch (category_pid) {
@@ -427,7 +447,6 @@ void* handle_store(struct HandleArgs* args) {
                 perror("fork");
                 exit(EXIT_FAILURE);
             case 0:
-                // printf("PID %jd created child for %s PID: %jd\n", (intmax_t)store_pid, category_paths[i], (intmax_t)getpid());
                 handle_category(args);
                 exit(EXIT_SUCCESS);
             default:
@@ -437,9 +456,6 @@ void* handle_store(struct HandleArgs* args) {
         }
     }
     // Wait for all store processes to finish
-    // for (int i = 0; i < 3; i++) {
-    //     wait(NULL);
-    // }
     for (int i = 0; i < 3; i++) {
         int status;
         if (category_pids[i] != 0 && (category_pids[i], &status, 0) == -1) {
@@ -700,23 +716,31 @@ void* update_product_file(void* args_void) {
     return NULL;
 }
 
-bool read_product_details(FILE* file, struct Product* product, struct Order* order) {
+int read_product_details(char* file_path, struct Product* product, struct Order* order) {
     char line[256];
     bool isNameFound = false;
     bool isEntityValid = false;
     char* namestr = NULL;
     int entity = 0;
+    int ans = 0;
+
+    FILE* file = fopen(file_path, "r");
+    if (file == NULL) {
+        printf("Error opening file: %s\n", file_path);
+        pthread_exit(NULL);
+    }
 
     while (fgets(line, sizeof(line), file)) {
         line[strcspn(line, "\n")] = 0; // Remove newline character
         if (strncmp(line, "Name:", 5) == 0) {
             namestr = line + 6;
             if (strcmp(namestr, order->name) == 0) {
-                strcpy(product->name, namestr);
+                strcpy(product->name, order->name);
                 isNameFound = true;
-                break;
+                // break;
             }
-        } else if (strncmp(line, "Entity:", 7) == 0) {
+        }
+        if (strncmp(line, "Entity:", 7) == 0) {
             entity = atoi(line + 8);
             if (isNameFound && order->quantity <= entity) {
                 product->entity = entity;
@@ -725,7 +749,12 @@ bool read_product_details(FILE* file, struct Product* product, struct Order* ord
             }
         }
     }
-    return isNameFound && isEntityValid;
+    fclose(file);
+    if (isNameFound && isEntityValid) {
+        ans += 1;
+        ans += 10 * ((int)file_path[15] - 48);
+    }
+    return ans;
 }
 
 // Function to read additional product info (price, score, last modified)

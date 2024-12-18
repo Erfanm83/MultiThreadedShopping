@@ -1,0 +1,24 @@
+Product Name: Dress
+Product Price: 147.57
+Product Cost: 295.14
+---
+Product Name: Smartphone
+Product Price: 401.62
+Product Cost: 1245.02
+---
+Product Name: Smartphone
+Product Price: 131.78
+Product Cost: 500.76
+---
+Product Name: Dress
+Product Price: 133.14
+Product Cost: 372.79
+---
+Product Name: Smartphone
+Product Price: 719.00
+Product Cost: 1509.90
+---
+Product Name: Dress
+Product Price: 188.85
+Product Cost: 849.83
+---

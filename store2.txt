@@ -1,0 +1,12 @@
+Product Name: Jeans
+Product Price: 582.51
+Product Cost: 2330.04
+---
+Product Name: Smartphone
+Product Price: 401.62
+Product Cost: 1245.02
+---
+Product Name: Dress
+Product Price: 147.57
+Product Cost: 295.14
+---
