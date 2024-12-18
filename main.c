@@ -58,12 +58,16 @@ struct Product {
     float cost;
     struct Date date;
     struct Time time;
+    char file_path[MAX_PATH_LEN];
 };
 
 struct UpdateFileArgs {
     char file_path[MAX_PATH_LEN];
     float user_score;
     float product_score;
+    int quantity;
+    struct HandleArgs* arguments;
+    int productIndex;
 };
 
 struct User {
@@ -101,7 +105,7 @@ int file_exists(const char *path);
 void wait_for_files();
 void calculate_best_cost(struct HandleArgs* args);
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
-double process_bestlist(const char *username, int orderNumber, char *file_path);
+double process_bestlist(const char *username, int orderNumber, struct HandleArgs* args);
 void* update_file(void* args_void);
 
 // Main function
@@ -685,107 +689,21 @@ void calculate_best_cost(struct HandleArgs* args) {
     }
 }
 
-void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
-    char off_file[256];
-    char file_path[256];
-    int order_chandommm = order_Chandom(user->username, 0);
-    snprintf(off_file, sizeof(off_file), "%s_%d.off", user->username, order_chandommm);
-    snprintf(file_path, sizeof(file_path), "%s_bestlist%d.txt", user->username, order_chandommm);
-
-    double final_cost = process_bestlist(user->username, order_chandommm, file_path);
-
-    if (final_cost < 0) {
-        printf("Failed to process bestlist. Cannot proceed.\n");
-        return;
-    }
-
-    printf("Final cost from bestlist: %.2f\n", final_cost);
-
-    // Check if cost is within user's price threshold
-    if (final_cost <= user->priceThreshold) {
-        printf("Your price threshold allows you to buy this product. Final cost: %.2f\n", final_cost);
-
-        // Ask user to confirm purchase
-        char ans;
-        printf("Do you want to buy this product? (Y or N): ");
-        scanf(" %c", &ans);
-
-        if (ans == 'Y' || ans == 'y') {
-            int score;
-            do {
-                printf("Please rate the product (0-5): ");
-                scanf("%d", &score);
-            } while (score < 0 || score > 5);
-
-            // Create thread to update the product file
-            pthread_t update_thread;
-            struct UpdateFileArgs* update_args = malloc(sizeof(struct UpdateFileArgs));
-            strncpy(update_args->file_path, file_path, MAX_PATH_LEN);
-            update_args->user_score = score;
-            update_args->product_score = args->product.score;
-
-            pthread_create(&update_thread, NULL, update_file, update_args);
-            pthread_join(update_thread, NULL);
-
-            printf("Purchase successful and product file updated.\n");
-        } else {
-            printf("You chose not to buy this product.\n");
-        }
-    } else {
-        printf("You cannot buy this product. Cost exceeds your price threshold.\n");
-    }
-}
-
-double process_bestlist(const char *username, int orderNumber, char *file_path) {
-    char bestlist_path[MAX_PATH_LEN];
-    snprintf(bestlist_path, sizeof(bestlist_path), "%s_bestlist%d.txt", username, orderNumber);
-
-    FILE *file = fopen(bestlist_path, "r");
-    if (file == NULL) {
-        perror("Failed to open bestlist file");
-        return -1.0;
-    }
-
-    double best_cost = 0.0;
-    char line[256];
-    int found_best_cost = 0;
-
-    // Read Best Cost from the first line and find file_path
-    while (fgets(line, sizeof(line), file)) {
-        if (!found_best_cost && strncmp(line, "Best Cost:", 10) == 0) {
-            sscanf(line, "Best Cost: %lf", &best_cost);
-            found_best_cost = 1;
-        }
-
-        if (strncmp(line, "  file_path:", 11) == 0) {
-            sscanf(line, "  file_path: %s", file_path);
-            break;
-        }
-    }
-
-    fclose(file);
-
-    if (!found_best_cost) {
-        printf("Failed to find Best Cost in %s\n", bestlist_path);
-        return -1.0;
-    }
-
-    return best_cost;
-}
-
-// Thread function to update the product file
 void* update_file(void* args_void) {
     struct UpdateFileArgs* args = (struct UpdateFileArgs*)args_void;
+    int order_chandommm = order_Chandom(args->arguments->user->username, 0);
+    char bestPath[MAX_PATH_LEN];
+    snprintf(bestPath, sizeof(bestPath), "%s_%d.off", args->arguments->user->username, order_chandommm);
 
-    FILE *file = fopen(args->file_path, "r+");
+    FILE *file = fopen(bestPath, "r+");
     if (file == NULL) {
         perror("Failed to open product file");
         return NULL;
     }
 
-    FILE *temp_file = fopen("temp.txt", "w");
+    FILE *temp_file = fopen(args->arguments->productlist[args->productIndex].file_path, "w");
     if (temp_file == NULL) {
-        perror("Failed to open temporary file");
+        perror("Failed to open best_path file");
         fclose(file);
         return NULL;
     }
@@ -793,10 +711,12 @@ void* update_file(void* args_void) {
     char line[256];
     float new_score = (args->user_score + args->product_score) / 2.0;
 
-    // Update score and keep all other contents intact
+    // Update score, date, time, and entity
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "  Score:", 8) == 0) {
             fprintf(temp_file, "  Score: %.2f\n", new_score);
+        } else if (strncmp(line, "  Entity:", 9) == 0) {
+            fprintf(temp_file, "  Entity: %d\n", args->quantity);
         } else if (strncmp(line, "  Date:", 7) == 0 || strncmp(line, "  Time:", 7) == 0) {
             // Update date and time to now
             time_t rawtime;
@@ -829,6 +749,112 @@ void* update_file(void* args_void) {
 
     free(args); // Free allocated memory for thread arguments
     return NULL;
+}
+
+// Function to process bestlist file
+double process_bestlist(const char *username, int orderNumber, struct HandleArgs* args) {
+    char bestlist_path[MAX_PATH_LEN];
+    snprintf(bestlist_path, sizeof(bestlist_path), "%s_bestlist%d.txt", username, orderNumber);
+
+    FILE *file = fopen(bestlist_path, "r");
+    if (file == NULL) {
+        perror("Failed to open bestlist file");
+        return -1.0;
+    }
+
+    double best_cost = 0.0;
+    char line[256];
+    int found_best_cost = 0;
+
+    // Read Best Cost and populate product list
+    while (fgets(line, sizeof(line), file)) {
+        if (!found_best_cost && strncmp(line, "Best Cost:", 10) == 0) {
+            sscanf(line, "Best Cost: %lf", &best_cost);
+            found_best_cost = 1;
+        }
+
+        if (strncmp(line, "  Name:", 7) == 0) {
+            struct Product *product = &args->productlist[MAX_PRODUCTS];
+            sscanf(line, "  Name: %s", product->name);
+
+            // Read product details
+            fgets(line, sizeof(line), file);
+            sscanf(line, "  Price: %f", &product->price);
+
+            fgets(line, sizeof(line), file);
+            sscanf(line, "  Score: %f", &product->score);
+
+            fgets(line, sizeof(line), file);
+            sscanf(line, "  Entity: %d", &product->entity);
+
+            fgets(line, sizeof(line), file);
+            sscanf(line, "  Cost: %f", &product->cost);
+
+            fgets(line, sizeof(line), file); // Date
+            fgets(line, sizeof(line), file); // Time
+
+            fgets(line, sizeof(line), file);
+            sscanf(line, "  file_path: %s", product->file_path);
+        }
+    }
+
+    fclose(file);
+
+    if (!found_best_cost) {
+        printf("Failed to find Best Cost in %s\n", bestlist_path);
+        return -1.0;
+    }
+
+    return best_cost;
+}
+
+// Main function to check, process, and update
+void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
+    int order_chandommm = order_Chandom(user->username, 0);
+    double final_cost = process_bestlist(user->username, order_chandommm, args);
+
+    if (final_cost < 0) {
+        printf("Failed to process bestlist. Cannot proceed.\n");
+        return;
+    }
+
+    printf("Final cost from bestlist: %.2f\n", final_cost);
+
+    if (final_cost <= user->priceThreshold) {
+        printf("Your price threshold allows you to buy this product. Final cost: %.2f\n", final_cost);
+
+        char ans;
+        printf("Do you want to buy this product? (Y or N): ");
+        scanf(" %c", &ans);
+
+        if (ans == 'Y' || ans == 'y') {
+            for (int i = 0; i < args->user->totalOrder; i++) {
+                struct Product *product = &args->productlist[i];
+                int score;
+
+                printf("Please rate product '%s' (0-5): ", product->name);
+                scanf("%d", &score);
+
+                pthread_t update_thread;
+                struct UpdateFileArgs* update_args = malloc(sizeof(struct UpdateFileArgs));
+                strncpy(update_args->file_path, product->file_path, MAX_PATH_LEN);
+                update_args->user_score = score;
+                update_args->product_score = product->score;
+                update_args->quantity = product->entity - 1; // Decrement entity count
+                update_args->arguments = args;
+                update_args->productIndex = i;
+
+                pthread_create(&update_thread, NULL, update_file, update_args);
+                pthread_join(update_thread, NULL);
+            }
+
+            printf("Purchase successful and all product files updated.\n");
+        } else {
+            printf("You chose not to buy this product.\n");
+        }
+    } else {
+        printf("You cannot buy this product. Cost exceeds your price threshold.\n");
+    }
 }
 
 int read_product_details(char* file_path, struct Product* product, struct Order* order) {
