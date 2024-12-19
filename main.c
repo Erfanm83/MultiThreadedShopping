@@ -16,6 +16,7 @@
 
 #define MAX_FILENAME 1000
 #define MAX_MESSAGE 1000
+#define MAX_THREADS 1024
 
 #define MAX_PRODUCTS 100
 #define MAX_USERS 1000
@@ -26,12 +27,14 @@
 #ifndef DT_DIR
     #define DT_DIR 3
 #endif
-#define NORMAL_COLOR  "\x1B[0m"
-#define GREEN  "\x1B[32m"
-#define BLUE  "\x1B[34m"
 
 // Global Variable
+ThreadControl thread_controls[MAX_THREADS];
+int thread_count = 0;  // To track the number of threads created
 char input[100];
+
+// Global mutex for managing thread controls
+pthread_mutex_t thread_controls_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct Order {
     char name[50];
@@ -61,13 +64,11 @@ struct Product {
     char file_path[MAX_PATH_LEN];
 };
 
-struct UpdateFileArgs {
-    float new_score;
-    int new_entity;
-    struct Product product;
-    struct HandleArgs* arguments;
-    int productIndex;
-};
+typedef struct ThreadControl {
+    pid_t tid;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} ThreadControl;
 
 struct User {
     char username[50];
@@ -108,6 +109,7 @@ double process_bestlist(int orderNumber, struct HandleArgs* args);
 void create_off(const char* username, int order_chandommm, int storeBought);
 bool off_file_exists(const char* username, int order_chandommm);
 void update_score_in_file(char *input_file);
+void wake_thread_by_tid(pid_t target_tid);
 
 // Main function
 int main() {
@@ -117,51 +119,51 @@ int main() {
     struct User user;
     int i;
 
-    do {
-        i = 0;
-        pid_t user_pids[MAX_USERS] = {0}; 
+    // do {
+    //     i = 0;
+    pid_t user_pids[MAX_USERS] = {0}; 
 
-        if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
-            perror("signal");
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+        perror("signal");
+        exit(EXIT_FAILURE);
+    }
+
+    // create process for user
+    int orderNum = get_user_details(&user);
+    printf("User Input Completed!\n");
+    userargs.user = &user;
+    userargs.file_path = "./Dataset";
+    pid_t user_pid = fork();
+    switch (user_pid) {
+        case -1:
+            perror("fork");
             exit(EXIT_FAILURE);
-        }
+        case 0:
+            // Child process
+            hasWritten = handle_all_stores(&userargs);
+            exit(EXIT_SUCCESS);
+        default:
+            // Parent process stores the child PID to wait for it later
+            user_pids[i] = user_pid;
+            // i++;
+            break;
+    }
 
-        // create process for user
-        int orderNum = get_user_details(&user);
-        printf("User Input Completed!\n");
-        userargs.user = &user;
-        userargs.file_path = "./Dataset";
-        pid_t user_pid = fork();
-        switch (user_pid) {
-            case -1:
-                perror("fork");
-                exit(EXIT_FAILURE);
-            case 0:
-                // Child process
-                hasWritten = handle_all_stores(&userargs);
-                exit(EXIT_SUCCESS);
-            default:
-                // Parent process stores the child PID to wait for it later
-                user_pids[i] = user_pid;
-                // i++;
-                break;
-        }
-
-        // Wait for child processes
-        int status;
-        for (i = 0; i < MAX_USERS; i++) {
-            if (user_pids[i] != 0) {
-                if (waitpid(user_pids[i], &status, 0) == -1) {
-                    perror("waitpid");
-                } else if (WIFEXITED(status)) {
-                    printf("Child process %jd terminated with status %d.\n", 
-                        (intmax_t)user_pids[i], WEXITSTATUS(status));
-                } else {
-                    printf("Child process %jd terminated abnormally.\n", (intmax_t)user_pids[i]);
-                }
+    // Wait for child processes
+    int status;
+    for (i = 0; i < MAX_USERS; i++) {
+        if (user_pids[i] != 0) {
+            if (waitpid(user_pids[i], &status, 0) == -1) {
+                perror("waitpid");
+            } else if (WIFEXITED(status)) {
+                printf("Child process %jd terminated with status %d.\n", 
+                    (intmax_t)user_pids[i], WEXITSTATUS(status));
+            } else {
+                printf("Child process %jd terminated abnormally.\n", (intmax_t)user_pids[i]);
             }
         }
-    } while(1);
+    }
+    // } while(1);
     return 0;
 }
 
@@ -261,6 +263,22 @@ int get_user_details(struct User* user) {
     return count;
 }
 
+void wake_thread_by_tid(pid_t target_tid) {
+    pthread_mutex_lock(&thread_controls_mutex);
+
+    for (int i = 0; i < thread_count; i++) {
+        if (thread_controls[i].tid == target_tid) {
+            // Wake up the thread with the target_tid
+            pthread_mutex_lock(&thread_controls[i].mutex);
+            pthread_cond_signal(&thread_controls[i].cond);  // Wake up the specific thread
+            pthread_mutex_unlock(&thread_controls[i].mutex);
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&thread_controls_mutex);
+}
+
 void* handle_file(void* args_void) {
     pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -285,6 +303,14 @@ void* handle_file(void* args_void) {
             (intmax_t)syscall(SYS_gettid));
     Write_in_log(message, filename);
 
+    // Register the current thread in the thread_controls array
+    pthread_mutex_lock(&thread_controls_mutex);
+    thread_controls[thread_count].tid = tid;
+    pthread_mutex_init(&thread_controls[thread_count].mutex, NULL);
+    pthread_cond_init(&thread_controls[thread_count].cond, NULL);
+    thread_count++;
+    pthread_mutex_unlock(&thread_controls_mutex);
+
     pthread_mutex_lock(&file_mutex);
     for (int i = 0; i < user->totalOrder; i++) {
         answer = read_product_details(file_path, product, &user->orderlist[i]);
@@ -303,7 +329,6 @@ void* handle_file(void* args_void) {
 
             memcpy(&args->productlist[i], product, sizeof(struct Product));
             storeNumber = answer / 10;
-
             
             pthread_mutex_lock(&dat_mutex);
             char* store_path = malloc(MAX_PATH_LEN * sizeof(char));
@@ -340,17 +365,22 @@ void* handle_file(void* args_void) {
                 perror("Failed to write to file");
             }
             pthread_mutex_unlock(&dat_mutex);
+
+            // Now, sleep this thread because it processed data
+            pthread_mutex_lock(&thread_controls[thread_count - 1].mutex);
+            pthread_cond_wait(&thread_controls[thread_count - 1].cond, &thread_controls[thread_count - 1].mutex);  // Wait to be woken up
+            pthread_mutex_unlock(&thread_controls[thread_count - 1].mutex);
+
             break;
         }
     }
     pthread_mutex_unlock(&file_mutex);
+
     return NULL;
 }
 
 void* handle_category(struct HandleArgs* args) {
-    pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
     char* file_path = args->file_path;
-    char* dat_path;
 
     DIR * d = opendir(args->file_path);
     if (d == NULL) {
@@ -384,7 +414,6 @@ void* handle_category(struct HandleArgs* args) {
             if (thread_args == NULL) {
                 perror("Failed to allocate memory for thread_args");
                 closedir(d);
-                // exit(EXIT_FAILURE);
                 return NULL;
             }
 
@@ -397,12 +426,11 @@ void* handle_category(struct HandleArgs* args) {
             // Create a thread to handle the file
             pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
 
-            // sleep thread
-            pthread_join(threads[thread_index], NULL);
+            // // sleep thread
+            // pthread_join(threads[thread_index], NULL);
 
-            free(thread_args->file_path);
-            free(thread_args);
-
+            // free(thread_args->file_path);
+            // free(thread_args);
             thread_index++;
         }
     }
