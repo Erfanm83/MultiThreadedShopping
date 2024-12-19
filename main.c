@@ -62,10 +62,9 @@ struct Product {
 };
 
 struct UpdateFileArgs {
-    char file_path[MAX_PATH_LEN];
-    float user_score;
-    float product_score;
-    int quantity;
+    float new_score;
+    int new_entity;
+    struct Product product;
     struct HandleArgs* arguments;
     int productIndex;
 };
@@ -107,6 +106,8 @@ void calculate_best_cost(struct HandleArgs* args);
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 double process_bestlist(int orderNumber, struct HandleArgs* args);
 void* update_file(void* args_void);
+void create_off(const char* username, int order_chandommm);
+bool off_file_exists(const char* username, int order_chandommm);
 
 // Main function
 int main() {
@@ -629,62 +630,68 @@ void calculate_best_cost(struct HandleArgs* args) {
 void* update_file(void* args_void) {
     struct UpdateFileArgs* args = (struct UpdateFileArgs*)args_void;
     int order_chandommm = order_Chandom(args->arguments->user->username, 0);
-    char bestPath[MAX_PATH_LEN];
-    char offPath[MAX_PATH_LEN];
-    sprintf(bestPath, "%s_bestlist%d.txt", args->arguments->user->username, order_chandommm);
-    snprintf(offPath, sizeof(offPath), "%s_%d.off", args->arguments->user->username, order_chandommm);
-
-    FILE *file = fopen(bestPath, "r+");
-    if (file == NULL) {
-        perror("Failed to open product file");
-        return NULL;
+    // char* bestPath = malloc(MAX_PATH_LEN * sizeof(char));
+    char* offPath = malloc(MAX_PATH_LEN * sizeof(char));
+    // sprintf(bestPath, "%s_bestlist%d.txt", args->arguments->user->username, order_chandommm);
+    // FILE *file = fopen(bestPath, "r+");
+    // if (file == NULL) {
+    //     perror("Failed to open product file");
+    //     return NULL;
+    // }
+    // char line[256];
+    // float new_score = (args->user_score + args->product_score) / 2.0;
+    
+    if (offPath == NULL) {
+        perror("malloc failed");
+        pthread_exit(NULL);
     }
-
+    snprintf(offPath, MAX_PATH_LEN, "%s_off%d.txt", args->arguments->user->username, order_chandommm);
     FILE *off_file = fopen(offPath, "w");
-    if (off_file == NULL) {
-        perror("Failed to open best_path file");
-        fclose(file);
-        return NULL;
+    if (off_file != NULL) {
+        char line[256];
+        fprintf(off_file, "*** User OFF Tag *** \n");
+        fprintf(off_file, "  Username: %s\n", args->arguments->user->username);
+        fprintf(off_file, "  Order: %d\n", order_chandommm);
+        fprintf(off_file, "  Off(percent) : %.2f\n", order_chandommm * 0.1);
+        fprintf(off_file, "------------------------------------\n");
+        fclose(off_file);
+    } else {
+        perror("Failed to write to file");
     }
-
-    char line[256];
-    float new_score = (args->user_score + args->product_score) / 2.0;
 
     // Update score, date, time, and entity
-    while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "  Score:", 8) == 0) {
-            fprintf(file, "  Score: %.2f\n", new_score);
-        } else if (strncmp(line, "  Entity:", 9) == 0) {
-            fprintf(off_file, "  Entity: %d\n", args->quantity);
-        } else if (strncmp(line, "  Date:", 7) == 0 || strncmp(line, "  Time:", 7) == 0) {
-            // Update date and time to now
-            time_t rawtime;
-            struct tm *timeinfo;
+    // while (fgets(line, sizeof(line), file)) {
+    //     if (strncmp(line, "  Score:", 8) == 0) {
+    //         fprintf(file, "  Score: %.2f\n", new_score);
+    //     } else if (strncmp(line, "  Entity:", 9) == 0) {
+    //         fprintf(off_file, "  Entity: %d\n", args->quantity);
+    //     } else if (strncmp(line, "  Date:", 7) == 0 || strncmp(line, "  Time:", 7) == 0) {
+    //         // Update date and time to now
+    //         time_t rawtime;
+    //         struct tm *timeinfo;
 
-            time(&rawtime);
-            timeinfo = localtime(&rawtime);
+    //         time(&rawtime);
+    //         timeinfo = localtime(&rawtime);
 
-            if (strncmp(line, "  Date:", 7) == 0) {
-                fprintf(off_file, "  Date: %04d-%02d-%02d\n",
-                        1900 + timeinfo->tm_year,
-                        timeinfo->tm_mon + 1,
-                        timeinfo->tm_mday);
-            } else if (strncmp(line, "  Time:", 7) == 0) {
-                fprintf(off_file, "  Time: %02d:%02d\n",
-                        timeinfo->tm_hour,
-                        timeinfo->tm_min);
-            }
-        } else {
-            fprintf(off_file, "%s", line);
-        }
-    }
+    //         if (strncmp(line, "  Date:", 7) == 0) {
+    //             fprintf(off_file, "  Date: %04d-%02d-%02d\n",
+    //                     1900 + timeinfo->tm_year,
+    //                     timeinfo->tm_mon + 1,
+    //                     timeinfo->tm_mday);
+    //         } else if (strncmp(line, "  Time:", 7) == 0) {
+    //             fprintf(off_file, "  Time: %02d:%02d\n",
+    //                     timeinfo->tm_hour,
+    //                     timeinfo->tm_min);
+    //         }
+    //     } else {
+    //         fprintf(off_file, "%s", line);
+    //     }
+    // }
 
-    fclose(file);
-    fclose(off_file);
-
+    // fclose(file);
     // Replace original file with updated file
-    remove(args->file_path);
-    rename("temp.txt", args->file_path);
+    // remove(args->file_path);
+    // rename("temp.txt", args->file_path);
 
     free(args); // Free allocated memory for thread arguments
     return NULL;
@@ -755,13 +762,15 @@ double process_bestlist(int orderNumber, struct HandleArgs* args) {
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
     int order_chandommm = order_Chandom(user->username, 0);
     double final_cost = process_bestlist(order_chandommm, args);
+    double effective_cost = final_cost;
 
-    if (final_cost < 0) {
-        printf("Failed to process bestlist. Cannot proceed.\n");
-        return;
+    // Check if off.txt exists and apply "off" percentage
+    if (off_file_exists(user->username, order_chandommm)) {
+        printf("Applying OFF discount from off.txt.\n");
+        effective_cost = final_cost * (1 - (order_chandommm * 0.1));
     }
 
-    if (final_cost <= user->priceThreshold || user->priceThreshold == -1) {
+    if (effective_cost <= user->priceThreshold || user->priceThreshold == -1) {
         printf("Your price threshold allows you to buy this product. Final cost: %.2f\n", final_cost);
 
         char ans;
@@ -769,30 +778,32 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
         scanf(" %c", &ans);
 
         if (ans == 'Y' || ans == 'y') {
+            // Call create_off to generate the off.txt file
+            create_off(user->username, order_chandommm);
             for (int i = 0; i < args->user->totalOrder; i++) {
                 struct Product *product = &args->productlist[i];
-                int score;
+                int user_score;
 
                 printf("Please rate product '%s' (0-5): ", product->name);
-                scanf("%d", &score);
+                scanf("%d", &user_score);
 
                 pthread_t update_thread;
                 struct UpdateFileArgs* update_args = malloc(sizeof(struct UpdateFileArgs));
-                strncpy(update_args->file_path, product->file_path, MAX_PATH_LEN);
-                update_args->user_score = score;
-                update_args->product_score = product->score;
-                update_args->quantity = product->entity - args->user->orderlist[i].quantity; // Decrement entity count
+                update_args->new_score = (user_score + product->score) / 2.0;
+                update_args->new_entity = product->entity - args->user->orderlist[i].quantity;
+                // update_args->product = product; // no need
                 update_args->arguments = args;
-                update_args->productIndex = i;
+                update_args->productIndex = i; // no need
 
                 // printf("user_score: %.2f\n" , update_args->user_score);
                 // printf("product_score: %.2f\n" , update_args->product_score);
                 // printf("quantity: %d\n" , update_args->quantity);
                 // printf("ptoductIndex: %d\n" , update_args->productIndex);
 
-                // pthread_create(&update_thread, NULL, (void* (*)(void*))update_file, args);
-                // pthread_join(update_thread, NULL);
             }
+
+            // pthread_create(&update_thread, NULL, (void* (*)(void*))update_file, args);
+            // pthread_join(update_thread, NULL);
 
             printf("Purchase successful and all product files updated.\n");
         } else {
@@ -801,6 +812,31 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
     } else {
         printf("You cannot buy this product. Cost exceeds your price threshold.\n");
     }
+}
+
+void create_off(const char* username, int order_chandommm) {
+    char offPath[MAX_PATH_LEN];
+    snprintf(offPath, MAX_PATH_LEN, "%s_off%d.txt", username, order_chandommm);
+
+    FILE *off_file = fopen(offPath, "w");
+    if (off_file != NULL) {
+        fprintf(off_file, "*** User OFF Tag *** \n");
+        fprintf(off_file, "  Username: %s\n", username);
+        fprintf(off_file, "  Order: %d\n", order_chandommm);
+        fprintf(off_file, "  Off(percent): %.2f\n", (order_chandommm + 1) * 0.1);
+        fprintf(off_file, "------------------------------------\n");
+        fclose(off_file);
+    } else {
+        perror("Failed to write to file");
+    }
+}
+
+bool off_file_exists(const char* username, int order_chandommm) {
+    char offPath[MAX_PATH_LEN];
+    snprintf(offPath, MAX_PATH_LEN, "%s_off%d.txt", username, order_chandommm);
+
+    struct stat buffer;
+    return (stat(offPath, &buffer) == 0);
 }
 
 int read_product_details(char* file_path, struct Product* product, struct Order* order) {
