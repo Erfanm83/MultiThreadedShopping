@@ -18,7 +18,7 @@
 #define MAX_MESSAGE 1000
 
 #define MAX_PRODUCTS 100
-// #define MAX_PATH_LEN 512
+#define MAX_USERS 1000
 #define MAX_PATH_LEN 1024
 #ifndef DT_REG
     #define DT_REG 8
@@ -105,9 +105,9 @@ void wait_for_files();
 void calculate_best_cost(struct HandleArgs* args);
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 double process_bestlist(int orderNumber, struct HandleArgs* args);
-void* update_file(void* args_void);
 void create_off(const char* username, int order_chandommm, int storeBought);
 bool off_file_exists(const char* username, int order_chandommm);
+void update_score_in_file(char *input_file);
 
 // Main function
 int main() {
@@ -115,15 +115,53 @@ int main() {
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     struct HandleArgs userargs;
     struct User user;
-    
-    // do {
-    // create process for user
-    int orderNum = get_user_details(&user);
-    printf("User Input Completed!\n");
-    userargs.user = &user;
-    userargs.file_path = "./Dataset";
-    hasWritten = handle_all_stores(&userargs);
-    // } while(1);
+    int i;
+
+    do {
+        i = 0;
+        pid_t user_pids[MAX_USERS] = {0}; 
+
+        if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) {
+            perror("signal");
+            exit(EXIT_FAILURE);
+        }
+
+        // create process for user
+        int orderNum = get_user_details(&user);
+        printf("User Input Completed!\n");
+        userargs.user = &user;
+        userargs.file_path = "./Dataset";
+        pid_t user_pid = fork();
+        switch (user_pid) {
+            case -1:
+                perror("fork");
+                exit(EXIT_FAILURE);
+            case 0:
+                // Child process
+                hasWritten = handle_all_stores(&userargs);
+                exit(EXIT_SUCCESS);
+            default:
+                // Parent process stores the child PID to wait for it later
+                user_pids[i] = user_pid;
+                // i++;
+                break;
+        }
+
+        // Wait for child processes
+        int status;
+        for (i = 0; i < MAX_USERS; i++) {
+            if (user_pids[i] != 0) {
+                if (waitpid(user_pids[i], &status, 0) == -1) {
+                    perror("waitpid");
+                } else if (WIFEXITED(status)) {
+                    printf("Child process %jd terminated with status %d.\n", 
+                        (intmax_t)user_pids[i], WEXITSTATUS(status));
+                } else {
+                    printf("Child process %jd terminated abnormally.\n", (intmax_t)user_pids[i]);
+                }
+            }
+        }
+    } while(1);
     return 0;
 }
 
@@ -438,10 +476,9 @@ void* handle_store(struct HandleArgs* args) {
 
 bool handle_all_stores(struct HandleArgs* args) {
     pthread_mutex_t dat_mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t dat_mutex2 = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t add_mutex = PTHREAD_MUTEX_INITIALIZER;
     char *parent_path = (char*)args->file_path;
-    pid_t store_pid;
+    // pid_t store_pid;
     struct Product* product;
     struct Product *productlist[MAX_PRODUCTS] = {0};
     float costStores[3] = {0};
@@ -471,16 +508,18 @@ bool handle_all_stores(struct HandleArgs* args) {
         }
         snprintf(args->file_path, MAX_PATH_LEN, "%s/Store%d", parent_path, i + 1);
         // Fork a child process for each store
-        store_pid = fork();
+        pid_t store_pid = fork();
         switch (store_pid) {
             case -1:
                 perror("fork");
+                free(args->file_path);
                 exit(EXIT_FAILURE);
             case 0:
                 // Child process
                 pthread_mutex_lock(&add_mutex);
                 args->storeIndex = i + 1;
                 pthread_mutex_unlock(&add_mutex);
+
                 handle_store(args);  // Process the store
                 exit(EXIT_SUCCESS);  // Exit child process after completing the task
             default:
@@ -494,27 +533,37 @@ bool handle_all_stores(struct HandleArgs* args) {
                        (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
 
                 Write_in_log(message, filename);
-                // printf("PID %jd created child for Store%d PID:%jd\n", 
-                //        (intmax_t)getppid(), i + 1, (intmax_t)store_pid);
                 break;
         }
     }
 
-    // Wait for all child processes to finish
     for (int i = 0; i < 3; i++) {
         int status;
-        if (store_pids[i] != 0 && (store_pids[i], &status, 0) == -1) {
-            perror("waitpid");
-            exit(EXIT_FAILURE);
-        }
-        if (WIFEXITED(status)) {
-            // printf("Child process %jd (Store%d) terminated successfully.\n", 
-            //        (intmax_t)store_pids[i], i + 1);
-        } else {
-            printf("Child process %jd (Store%d) terminated with an error.\n", 
-                   (intmax_t)store_pids[i], i + 1);
+        if (store_pids[i] != 0) {
+            if (waitpid(store_pids[i], &status, 0) == -1) {
+                perror("waitpid");
+            } else if (WIFEXITED(status)) {
+                printf("Store %d (PID %jd) terminated with status %d.\n", 
+                       i + 1, (intmax_t)store_pids[i], WEXITSTATUS(status));
+            } else {
+                printf("Store %d (PID %jd) terminated abnormally.\n", 
+                       i + 1, (intmax_t)store_pids[i]);
+            }
         }
     }
+
+    // Wait for all child processes to finish
+    // for (int i = 0; i < 3; i++) {
+    //     int status;
+    //     if (store_pids[i] != 0 && (store_pids[i], &status, 0) == -1) {
+    //         perror("waitpid");
+    //         exit(EXIT_FAILURE);
+    //     }
+    //     else {
+    //         printf("Child process %jd (Store%d) terminated with an error.\n", 
+    //                (intmax_t)store_pids[i], i + 1);
+    //     }
+    // }
 
     // Wait for all required files to be created
     wait_for_files();
@@ -627,76 +676,6 @@ void calculate_best_cost(struct HandleArgs* args) {
     }
 }
 
-void* update_file(void* args_void) {
-    struct UpdateFileArgs* args = (struct UpdateFileArgs*)args_void;
-    int order_chandommm = order_Chandom(args->arguments->user->username, 0);
-    // char* bestPath = malloc(MAX_PATH_LEN * sizeof(char));
-    char* offPath = malloc(MAX_PATH_LEN * sizeof(char));
-    // sprintf(bestPath, "%s_bestlist%d.txt", args->arguments->user->username, order_chandommm);
-    // FILE *file = fopen(bestPath, "r+");
-    // if (file == NULL) {
-    //     perror("Failed to open product file");
-    //     return NULL;
-    // }
-    // char line[256];
-    // float new_score = (args->user_score + args->product_score) / 2.0;
-    
-    if (offPath == NULL) {
-        perror("malloc failed");
-        pthread_exit(NULL);
-    }
-    snprintf(offPath, MAX_PATH_LEN, "%s_off%d.txt", args->arguments->user->username, order_chandommm);
-    FILE *off_file = fopen(offPath, "w");
-    if (off_file != NULL) {
-        char line[256];
-        fprintf(off_file, "*** User OFF Tag *** \n");
-        fprintf(off_file, "  Username: %s\n", args->arguments->user->username);
-        fprintf(off_file, "  Order: %d\n", order_chandommm);
-        fprintf(off_file, "  Off(percent) : %.2f\n", order_chandommm * 0.1);
-        fprintf(off_file, "------------------------------------\n");
-        fclose(off_file);
-    } else {
-        perror("Failed to write to file");
-    }
-
-    // Update score, date, time, and entity
-    // while (fgets(line, sizeof(line), file)) {
-    //     if (strncmp(line, "  Score:", 8) == 0) {
-    //         fprintf(file, "  Score: %.2f\n", new_score);
-    //     } else if (strncmp(line, "  Entity:", 9) == 0) {
-    //         fprintf(off_file, "  Entity: %d\n", args->quantity);
-    //     } else if (strncmp(line, "  Date:", 7) == 0 || strncmp(line, "  Time:", 7) == 0) {
-    //         // Update date and time to now
-    //         time_t rawtime;
-    //         struct tm *timeinfo;
-
-    //         time(&rawtime);
-    //         timeinfo = localtime(&rawtime);
-
-    //         if (strncmp(line, "  Date:", 7) == 0) {
-    //             fprintf(off_file, "  Date: %04d-%02d-%02d\n",
-    //                     1900 + timeinfo->tm_year,
-    //                     timeinfo->tm_mon + 1,
-    //                     timeinfo->tm_mday);
-    //         } else if (strncmp(line, "  Time:", 7) == 0) {
-    //             fprintf(off_file, "  Time: %02d:%02d\n",
-    //                     timeinfo->tm_hour,
-    //                     timeinfo->tm_min);
-    //         }
-    //     } else {
-    //         fprintf(off_file, "%s", line);
-    //     }
-    // }
-
-    // fclose(file);
-    // Replace original file with updated file
-    // remove(args->file_path);
-    // rename("temp.txt", args->file_path);
-
-    free(args); // Free allocated memory for thread arguments
-    return NULL;
-}
-
 // Function to process bestlist file
 double process_bestlist(int orderNumber, struct HandleArgs* args) {
     char bestlist_path[MAX_PATH_LEN];
@@ -767,6 +746,8 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
     int order_chandommm = order_Chandom(user->username, 0);
     double final_cost = process_bestlist(order_chandommm, args);
     double effective_cost = final_cost;
+    char* bestPath = malloc(MAX_PATH_LEN * sizeof(char));
+    sprintf(bestPath, "%s_bestlist%d.txt", args->user->username, order_chandommm);
 
     // Check if off.txt exists and apply "off" percentage
     if (off_file_exists(user->username, order_chandommm)) {
@@ -784,38 +765,20 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
         if (ans == 'Y' || ans == 'y') {
             // Call create_off to generate the off.txt file
             create_off(user->username, order_chandommm, args->storeIndex);
-            for (int i = 0; i < args->user->totalOrder; i++) {
-                struct Product *product = &args->productlist[i];
-                int user_score;
 
-                printf("Please rate product '%s' (0-5): ", product->name);
-                scanf("%d", &user_score);
-
-                pthread_t update_thread;
-                struct UpdateFileArgs* update_args = malloc(sizeof(struct UpdateFileArgs));
-                update_args->new_score = (user_score + product->score) / 2.0;
-                update_args->new_entity = product->entity - args->user->orderlist[i].quantity;
-                // update_args->product = product; // no need
-                update_args->arguments = args;
-                update_args->productIndex = i; // no need
-
-                // printf("user_score: %.2f\n" , update_args->user_score);
-                // printf("product_score: %.2f\n" , update_args->product_score);
-                // printf("quantity: %d\n" , update_args->quantity);
-                // printf("ptoductIndex: %d\n" , update_args->productIndex);
-
-            }
-
-            // pthread_create(&update_thread, NULL, (void* (*)(void*))update_file, args);
-            // pthread_join(update_thread, NULL);
+            pthread_t update_thread;
+            pthread_create(&update_thread, NULL, (void* (*)(void*))update_score_in_file, bestPath);
+            // sleep thread
+            pthread_join(update_thread, NULL);
 
             printf("Purchase successful and all product files updated.\n");
-        } else {
+        } else if (ans == 'N' || ans == 'n') {
             printf("You chose not to buy this product.\n");
         }
     } else {
         printf("You cannot buy this product. Cost exceeds your price threshold.\n");
     }
+    free(args);
 }
 
 void create_off(const char* username, int order_chandommm, int storeBought) {
@@ -984,4 +947,84 @@ void Write_in_log(char *message, char *filename){
 
     fclose(logFile);
 
+}
+
+void update_score_in_file(char *input_file) {
+    pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
+    FILE *file = fopen(input_file, "r");
+    if (!file) {
+        printf("error to opening file in update score in file\n");
+        return;
+    }
+    char line[512];
+    char name[50], file_path[200];
+    float price, score;
+    int entity;
+    int product_count = 0;
+    // خواندن فایل ورودی
+    while (fgets(line, sizeof(line), file)) {
+        if (strstr(line, "Name:")) {
+            sscanf(line, " Name: %49[^\n]", name);
+        } else if (strstr(line, "Price:")) {
+            sscanf(line, " Price: %f", &price);
+        } else if (strstr(line, "Score:")) {
+            sscanf(line, " Score: %f", &score);
+        } else if (strstr(line, "Entity:")) {
+            sscanf(line, " Entity: %d", &entity);
+        } else if (strstr(line, "file_path:")) {
+            sscanf(line, " file_path: %199[^\n]", file_path);
+            float user_score;
+            while (1) {
+                // گرفتن امتیاز از کاربر
+                printf("How would you rate the product %s with the price %.2f (between 0 and 5)?", name, price);
+                scanf("%f", &user_score);
+                if (user_score < 0.0 || user_score > 5.0) {
+                    printf("Invalid score. Must be between 0 and 5.\n");
+                    continue;
+                }else{
+                    break;
+                }
+            }
+            // محاسبه امتیاز جدید
+            float new_score = (score + user_score) / 2;
+            FILE *product_file = fopen(file_path, "r+");
+            if (!product_file) {
+                printf("خطا در باز کردن فایل: %s\n", file_path);
+                continue;
+            }
+            time_t now = time(NULL);
+            struct tm *local = localtime(&now);
+            char current_time[50];
+            strftime(current_time, sizeof(current_time), "Last Modified: %Y-%m-%d %H:%M:%S\n", local);
+            // بروزرسانی محتوا
+            char buffer[1024];
+            char new_content[1024] = "";
+            int found_score = 0, found_last_modified = 0;
+
+            pthread_mutex_lock(&file_mutex);
+
+            while (fgets(buffer, sizeof(buffer), product_file)) {
+                if (strstr(buffer, "Score:") && !found_score) {
+                    sprintf(buffer, "Score: %.2f\n", new_score);
+                    found_score = 1;
+                } else if (strstr(buffer, "Last Modified:") && !found_last_modified) {
+                    sprintf(buffer, "%s", current_time);
+                    found_last_modified = 1;
+                }
+                strcat(new_content, buffer);
+            }
+            rewind(product_file);
+            fprintf(product_file, "%s", new_content);
+            fflush(product_file);
+            fclose(product_file);
+
+            pthread_mutex_unlock(&file_mutex);
+            printf("Score and modification time were successfully updated.\n");
+            product_count++;
+        }
+    }
+    fclose(file);
+    if (product_count == 0) {
+        printf("No products found in the input file.\n");
+    }
 }
