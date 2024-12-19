@@ -1,0 +1,36 @@
+Store 2
+username: Erfan
+------------------------------------
+productlist : 
+  Name: Smartphone
+  Price: 401.62
+  Score: 3.10
+  Entity: 57
+  Cost: 1245.02
+  Date: 2024-11-23
+  Time: 18:49
+  file_path: ./Dataset/Store2/Digital/1.txt
+  tid: 32482
+------------------------------------
+productlist : 
+  Name: Jeans
+  Price: 582.51
+  Score: 4.00
+  Entity: 42
+  Cost: 2330.04
+  Date: 2024-11-23
+  Time: 18:49
+  file_path: ./Dataset/Store2/Apparel/161.txt
+  tid: 32627
+------------------------------------
+productlist : 
+  Name: Dress
+  Price: 147.57
+  Score: 2.00
+  Entity: 61
+  Cost: 295.14
+  Date: 2024-11-23
+  Time: 18:49
+  file_path: ./Dataset/Store2/Apparel/163.txt
+  tid: 32660
+------------------------------------

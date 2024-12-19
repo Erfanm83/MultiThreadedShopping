@@ -1,0 +1,39 @@
+Best Cost: 1509.90
+Details from store1.txt:
+
+Store 1
+username: Erfan
+------------------------------------
+productlist : 
+  Name: Jeans
+  Price: 270.96
+  Score: 4.50
+  Entity: 52
+  Cost: 1219.32
+  Date: 2024-11-23
+  Time: 18:50
+  file_path: ./Dataset/Store1/Apparel/161.txt
+  tid: 32673
+------------------------------------
+productlist : 
+  Name: Dress
+  Price: 188.85
+  Score: 4.50
+  Entity: 12
+  Cost: 849.83
+  Date: 2024-11-23
+  Time: 18:50
+  file_path: ./Dataset/Store1/Apparel/163.txt
+  tid: 32701
+------------------------------------
+productlist : 
+  Name: Smartphone
+  Price: 719.00
+  Score: 2.10
+  Entity: 69
+  Cost: 1509.90
+  Date: 2024-11-23
+  Time: 18:50
+  file_path: ./Dataset/Store1/Digital/1.txt
+  tid: 32744
+------------------------------------

@@ -105,7 +105,7 @@ int file_exists(const char *path);
 void wait_for_files();
 void calculate_best_cost(struct HandleArgs* args);
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
-double process_bestlist(const char *username, int orderNumber, struct HandleArgs* args);
+double process_bestlist(int orderNumber, struct HandleArgs* args);
 void* update_file(void* args_void);
 
 // Main function
@@ -122,64 +122,6 @@ int main() {
     userargs.user = &user;
     userargs.file_path = "./Dataset";
     hasWritten = handle_all_stores(&userargs);
-    // if (hasWritten) {
-    //     // Lock the mutex before accessing the shared file
-    //     pthread_mutex_lock(&file_mutex);
-
-    //     // Open bestlist.dat to read the stored contents
-    //     FILE *file2 = fopen("bestlist.dat", "rb");
-    //     if (file2 != NULL) {
-    //         int bestStore = -1;
-    //         int bestCost = 0;
-            
-    //         // Read the bestStore and bestCost
-    //         if (fread(&bestStore, sizeof(int), 1, file2) != 1) {
-    //             perror("Failed to read bestStore from file");
-    //             fclose(file2);
-    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
-    //             return -1;
-    //         }
-    //         if (fread(&bestCost, sizeof(int), 1, file2) != 1) {
-    //             perror("Failed to read bestCost from file");
-    //             fclose(file2);
-    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
-    //             return -1;
-    //         }
-
-    //         // Print the best store and cost
-    //         printf("Best Store: %d\n", bestStore);
-    //         printf("Best Cost: %d\n", bestCost);
-
-    //         // Read the HandleArgs structure
-    //         if (fread(&userargs, sizeof(struct HandleArgs), 1, file2) != 1) {
-    //             perror("Failed to read HandleArgs structure from file");
-    //             fclose(file2);
-    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
-    //             return -1;
-    //         }
-
-    //         // Print details from HandleArgs (excluding file_path for now)
-    //         printf("HandleArgs Details:\n");
-    //         printf("User Address: %p\n", userargs.user);  // For demonstration, you may print other fields as needed.
-
-    //         // Read the file_path string (it’s stored as a null-terminated string)
-    //         char filePath[256]; // Buffer to store file_path string
-    //         if (fread(filePath, sizeof(char), 256, file2) != 1) {
-    //             perror("Failed to read file_path from file");
-    //             fclose(file2);
-    //             pthread_mutex_unlock(&file_mutex); // Unlock before returning
-    //             return -1;
-    //         }
-    //         printf("File Path: %s\n", filePath);
-
-    //         fclose(file2);
-    //     } else {
-    //         perror("Failed to open bestlist.dat for reading");
-    //     }
-
-    //     // Unlock the mutex after accessing the shared file
-    //     pthread_mutex_unlock(&file_mutex);
-    // }
     // } while(1);
     return 0;
 }
@@ -308,7 +250,6 @@ void* handle_file(void* args_void) {
     for (int i = 0; i < user->totalOrder; i++) {
         answer = read_product_details(file_path, product, &user->orderlist[i]);
         if (answer % 10 == 1) {
-            printf("file_path %s \n", file_path);
             // Open file again to read additional details
             FILE* file2 = fopen(file_path, "r");
             if (file2 == NULL) {
@@ -324,8 +265,6 @@ void* handle_file(void* args_void) {
             memcpy(&args->productlist[i], product, sizeof(struct Product));
             storeNumber = answer / 10;
 
-            
-            // printf("dakhel if flag\n");
             
             pthread_mutex_lock(&dat_mutex);
             char* store_path = malloc(MAX_PATH_LEN * sizeof(char));
@@ -353,6 +292,7 @@ void* handle_file(void* args_void) {
                     fprintf(file3, "  Date: %04d-%02d-%02d\n", product->date.year, product->date.month, product->date.day);
                     fprintf(file3, "  Time: %02d:%02d\n", product->time.hour, product->time.minutes);
                     fprintf(file3, "  file_path: %s\n", args->file_path);
+                    fprintf(file3, "  tid: %ld\n", (intmax_t) tid);
                     fprintf(file3, "------------------------------------\n");
                 }
                 fclose(file3);
@@ -415,7 +355,6 @@ void* handle_category(struct HandleArgs* args) {
             thread_args->file_path = malloc(MAX_PATH_LEN * sizeof(char));
             snprintf(thread_args->file_path, MAX_PATH_LEN, "%s/%s", file_path, dir->d_name);
 
-            // printf("args->storeIndex in handle_category: %d\n", args->storeIndex);
             // Create a thread to handle the file
             pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
 
@@ -682,8 +621,6 @@ void calculate_best_cost(struct HandleArgs* args) {
 
         fclose(file);
         fclose(best_file);
-
-        printf("Best cost calculated and saved to bestlist.txt successfully.\n");
     } else {
         printf("No valid store files found or costs calculated.\n");
     }
@@ -693,7 +630,9 @@ void* update_file(void* args_void) {
     struct UpdateFileArgs* args = (struct UpdateFileArgs*)args_void;
     int order_chandommm = order_Chandom(args->arguments->user->username, 0);
     char bestPath[MAX_PATH_LEN];
-    snprintf(bestPath, sizeof(bestPath), "%s_%d.off", args->arguments->user->username, order_chandommm);
+    char offPath[MAX_PATH_LEN];
+    sprintf(bestPath, "%s_bestlist%d.txt", args->arguments->user->username, order_chandommm);
+    snprintf(offPath, sizeof(offPath), "%s_%d.off", args->arguments->user->username, order_chandommm);
 
     FILE *file = fopen(bestPath, "r+");
     if (file == NULL) {
@@ -701,8 +640,8 @@ void* update_file(void* args_void) {
         return NULL;
     }
 
-    FILE *temp_file = fopen(args->arguments->productlist[args->productIndex].file_path, "w");
-    if (temp_file == NULL) {
+    FILE *off_file = fopen(offPath, "w");
+    if (off_file == NULL) {
         perror("Failed to open best_path file");
         fclose(file);
         return NULL;
@@ -714,9 +653,9 @@ void* update_file(void* args_void) {
     // Update score, date, time, and entity
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "  Score:", 8) == 0) {
-            fprintf(temp_file, "  Score: %.2f\n", new_score);
+            fprintf(file, "  Score: %.2f\n", new_score);
         } else if (strncmp(line, "  Entity:", 9) == 0) {
-            fprintf(temp_file, "  Entity: %d\n", args->quantity);
+            fprintf(off_file, "  Entity: %d\n", args->quantity);
         } else if (strncmp(line, "  Date:", 7) == 0 || strncmp(line, "  Time:", 7) == 0) {
             // Update date and time to now
             time_t rawtime;
@@ -726,22 +665,22 @@ void* update_file(void* args_void) {
             timeinfo = localtime(&rawtime);
 
             if (strncmp(line, "  Date:", 7) == 0) {
-                fprintf(temp_file, "  Date: %04d-%02d-%02d\n",
+                fprintf(off_file, "  Date: %04d-%02d-%02d\n",
                         1900 + timeinfo->tm_year,
                         timeinfo->tm_mon + 1,
                         timeinfo->tm_mday);
             } else if (strncmp(line, "  Time:", 7) == 0) {
-                fprintf(temp_file, "  Time: %02d:%02d\n",
+                fprintf(off_file, "  Time: %02d:%02d\n",
                         timeinfo->tm_hour,
                         timeinfo->tm_min);
             }
         } else {
-            fprintf(temp_file, "%s", line);
+            fprintf(off_file, "%s", line);
         }
     }
 
     fclose(file);
-    fclose(temp_file);
+    fclose(off_file);
 
     // Replace original file with updated file
     remove(args->file_path);
@@ -752,9 +691,9 @@ void* update_file(void* args_void) {
 }
 
 // Function to process bestlist file
-double process_bestlist(const char *username, int orderNumber, struct HandleArgs* args) {
+double process_bestlist(int orderNumber, struct HandleArgs* args) {
     char bestlist_path[MAX_PATH_LEN];
-    snprintf(bestlist_path, sizeof(bestlist_path), "%s_bestlist%d.txt", username, orderNumber);
+    snprintf(bestlist_path, sizeof(bestlist_path), "%s_bestlist%d.txt", args->user->username, orderNumber);
 
     FILE *file = fopen(bestlist_path, "r");
     if (file == NULL) {
@@ -765,6 +704,8 @@ double process_bestlist(const char *username, int orderNumber, struct HandleArgs
     double best_cost = 0.0;
     char line[256];
     int found_best_cost = 0;
+    struct Product *product = &args->productlist[MAX_PRODUCTS];
+    int index = 0;
 
     // Read Best Cost and populate product list
     while (fgets(line, sizeof(line), file)) {
@@ -774,7 +715,6 @@ double process_bestlist(const char *username, int orderNumber, struct HandleArgs
         }
 
         if (strncmp(line, "  Name:", 7) == 0) {
-            struct Product *product = &args->productlist[MAX_PRODUCTS];
             sscanf(line, "  Name: %s", product->name);
 
             // Read product details
@@ -795,6 +735,9 @@ double process_bestlist(const char *username, int orderNumber, struct HandleArgs
 
             fgets(line, sizeof(line), file);
             sscanf(line, "  file_path: %s", product->file_path);
+
+            memcpy(&args->productlist[index], product, sizeof(struct Product));
+            index += 1;
         }
     }
 
@@ -811,16 +754,14 @@ double process_bestlist(const char *username, int orderNumber, struct HandleArgs
 // Main function to check, process, and update
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
     int order_chandommm = order_Chandom(user->username, 0);
-    double final_cost = process_bestlist(user->username, order_chandommm, args);
+    double final_cost = process_bestlist(order_chandommm, args);
 
     if (final_cost < 0) {
         printf("Failed to process bestlist. Cannot proceed.\n");
         return;
     }
 
-    printf("Final cost from bestlist: %.2f\n", final_cost);
-
-    if (final_cost <= user->priceThreshold) {
+    if (final_cost <= user->priceThreshold || user->priceThreshold == -1) {
         printf("Your price threshold allows you to buy this product. Final cost: %.2f\n", final_cost);
 
         char ans;
@@ -840,12 +781,17 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
                 strncpy(update_args->file_path, product->file_path, MAX_PATH_LEN);
                 update_args->user_score = score;
                 update_args->product_score = product->score;
-                update_args->quantity = product->entity - 1; // Decrement entity count
+                update_args->quantity = product->entity - args->user->orderlist[i].quantity; // Decrement entity count
                 update_args->arguments = args;
                 update_args->productIndex = i;
 
-                pthread_create(&update_thread, NULL, update_file, update_args);
-                pthread_join(update_thread, NULL);
+                // printf("user_score: %.2f\n" , update_args->user_score);
+                // printf("product_score: %.2f\n" , update_args->product_score);
+                // printf("quantity: %d\n" , update_args->quantity);
+                // printf("ptoductIndex: %d\n" , update_args->productIndex);
+
+                // pthread_create(&update_thread, NULL, (void* (*)(void*))update_file, args);
+                // pthread_join(update_thread, NULL);
             }
 
             printf("Purchase successful and all product files updated.\n");
