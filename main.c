@@ -13,7 +13,6 @@
 #include <stdbool.h>
 #include <time.h>
 
-
 #define MAX_FILENAME 1000
 #define MAX_MESSAGE 1000
 #define MAX_THREADS 1024
@@ -29,7 +28,6 @@
 #endif
 
 // Global Variable
-ThreadControl thread_controls[MAX_THREADS];
 int thread_count = 0;  // To track the number of threads created
 char input[100];
 
@@ -108,9 +106,10 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 double process_bestlist(int orderNumber, struct HandleArgs* args);
 void create_off(const char* username, int order_chandommm, int storeBought);
 bool off_file_exists(const char* username, int order_chandommm);
-void update_score_in_file(char *input_file);
+void update_score_in_file(struct HandleArgs* args);
 void wake_thread_by_tid(pid_t target_tid);
 
+ThreadControl thread_controls[MAX_THREADS];
 // Main function
 int main() {
     bool hasWritten = false;
@@ -367,9 +366,9 @@ void* handle_file(void* args_void) {
             pthread_mutex_unlock(&dat_mutex);
 
             // Now, sleep this thread because it processed data
-            pthread_mutex_lock(&thread_controls[thread_count - 1].mutex);
-            pthread_cond_wait(&thread_controls[thread_count - 1].cond, &thread_controls[thread_count - 1].mutex);  // Wait to be woken up
-            pthread_mutex_unlock(&thread_controls[thread_count - 1].mutex);
+            // pthread_mutex_lock(&thread_controls[thread_count - 1].mutex);
+            // pthread_cond_wait(&thread_controls[thread_count - 1].cond, &thread_controls[thread_count - 1].mutex);  // Wait to be woken up
+            // pthread_mutex_unlock(&thread_controls[thread_count - 1].mutex);
 
             break;
         }
@@ -426,11 +425,11 @@ void* handle_category(struct HandleArgs* args) {
             // Create a thread to handle the file
             pthread_create(&threads[thread_index], NULL, (void* (*)(void*))handle_file, thread_args);
 
-            // // sleep thread
-            // pthread_join(threads[thread_index], NULL);
+            // sleep thread
+            pthread_join(threads[thread_index], NULL);
 
-            // free(thread_args->file_path);
-            // free(thread_args);
+            free(thread_args->file_path);
+            free(thread_args);
             thread_index++;
         }
     }
@@ -565,33 +564,33 @@ bool handle_all_stores(struct HandleArgs* args) {
         }
     }
 
-    for (int i = 0; i < 3; i++) {
-        int status;
-        if (store_pids[i] != 0) {
-            if (waitpid(store_pids[i], &status, 0) == -1) {
-                perror("waitpid");
-            } else if (WIFEXITED(status)) {
-                printf("Store %d (PID %jd) terminated with status %d.\n", 
-                       i + 1, (intmax_t)store_pids[i], WEXITSTATUS(status));
-            } else {
-                printf("Store %d (PID %jd) terminated abnormally.\n", 
-                       i + 1, (intmax_t)store_pids[i]);
-            }
-        }
-    }
-
-    // Wait for all child processes to finish
     // for (int i = 0; i < 3; i++) {
     //     int status;
-    //     if (store_pids[i] != 0 && (store_pids[i], &status, 0) == -1) {
-    //         perror("waitpid");
-    //         exit(EXIT_FAILURE);
-    //     }
-    //     else {
-    //         printf("Child process %jd (Store%d) terminated with an error.\n", 
-    //                (intmax_t)store_pids[i], i + 1);
+    //     if (store_pids[i] != 0) {
+    //         if (waitpid(store_pids[i], &status, 0) == -1) {
+    //             perror("waitpid");
+    //         } else if (WIFEXITED(status)) {
+    //             printf("Store %d (PID %jd) terminated with status %d.\n", 
+    //                    i + 1, (intmax_t)store_pids[i], WEXITSTATUS(status));
+    //         } else {
+    //             printf("Store %d (PID %jd) terminated abnormally.\n", 
+    //                    i + 1, (intmax_t)store_pids[i]);
+    //         }
     //     }
     // }
+
+    // Wait for all child processes to finish
+    for (int i = 0; i < 3; i++) {
+        int status;
+        if (store_pids[i] != 0 && (store_pids[i], &status, 0) == -1) {
+            perror("waitpid");
+            exit(EXIT_FAILURE);
+        }
+        else {
+            printf("Child process %jd (Store%d) terminated with an error.\n", 
+                   (intmax_t)store_pids[i], i + 1);
+        }
+    }
 
     // Wait for all required files to be created
     wait_for_files();
@@ -795,7 +794,7 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
             create_off(user->username, order_chandommm, args->storeIndex);
 
             pthread_t update_thread;
-            pthread_create(&update_thread, NULL, (void* (*)(void*))update_score_in_file, bestPath);
+            pthread_create(&update_thread, NULL, (void* (*)(void*))update_score_in_file, args);
             // sleep thread
             pthread_join(update_thread, NULL);
 
@@ -977,7 +976,10 @@ void Write_in_log(char *message, char *filename){
 
 }
 
-void update_score_in_file(char *input_file) {
+void update_score_in_file(struct HandleArgs* args) {
+    int order_chandommm = order_Chandom(args->user->username, 0);
+    char* input_file = malloc(MAX_PATH_LEN * sizeof(char));
+    sprintf(input_file, "%s_bestlist%d.txt", args->user->username, order_chandommm);
     pthread_mutex_t file_mutex = PTHREAD_MUTEX_INITIALIZER;
     FILE *file = fopen(input_file, "r");
     if (!file) {
@@ -989,6 +991,7 @@ void update_score_in_file(char *input_file) {
     float price, score;
     int entity;
     int product_count = 0;
+    int i = 0;
     // خواندن فایل ورودی
     while (fgets(line, sizeof(line), file)) {
         if (strstr(line, "Name:")) {
@@ -997,6 +1000,8 @@ void update_score_in_file(char *input_file) {
             sscanf(line, " Price: %f", &price);
         } else if (strstr(line, "Score:")) {
             sscanf(line, " Score: %f", &score);
+        } else if (strstr(line, "------------------------------------")) {
+            i++;
         } else if (strstr(line, "Entity:")) {
             sscanf(line, " Entity: %d", &entity);
         } else if (strstr(line, "file_path:")) {
@@ -1035,6 +1040,9 @@ void update_score_in_file(char *input_file) {
                 if (strstr(buffer, "Score:") && !found_score) {
                     sprintf(buffer, "Score: %.2f\n", new_score);
                     found_score = 1;
+                } else if (strstr(buffer, "Entity:")) {
+                    sprintf(buffer, "Entity: %d", entity - args->user->orderlist[i - 1].quantity);
+                    found_last_modified = 1;
                 } else if (strstr(buffer, "Last Modified:") && !found_last_modified) {
                     sprintf(buffer, "%s", current_time);
                     found_last_modified = 1;
@@ -1056,3 +1064,4 @@ void update_score_in_file(char *input_file) {
         printf("No products found in the input file.\n");
     }
 }
+
