@@ -106,7 +106,7 @@ void calculate_best_cost(struct HandleArgs* args);
 void check_and_ask_to_buy(struct HandleArgs* args, struct User* user);
 double process_bestlist(int orderNumber, struct HandleArgs* args);
 void* update_file(void* args_void);
-void create_off(const char* username, int order_chandommm);
+void create_off(const char* username, int order_chandommm, int storeBought);
 bool off_file_exists(const char* username, int order_chandommm);
 
 // Main function
@@ -721,6 +721,10 @@ double process_bestlist(int orderNumber, struct HandleArgs* args) {
             found_best_cost = 1;
         }
 
+        if (strncmp(line, "Store", 5) == 0) {
+            sscanf(line, "Store %d", &args->storeIndex);
+        }
+
         if (strncmp(line, "  Name:", 7) == 0) {
             sscanf(line, "  Name: %s", product->name);
 
@@ -766,8 +770,8 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
 
     // Check if off.txt exists and apply "off" percentage
     if (off_file_exists(user->username, order_chandommm)) {
-        printf("Applying OFF discount from off.txt.\n");
-        effective_cost = final_cost * (1 - (order_chandommm * 0.1));
+        printf("Applying OFF discount of 10 percent\n");
+        effective_cost = final_cost * 0.1;
     }
 
     if (effective_cost <= user->priceThreshold || user->priceThreshold == -1) {
@@ -779,7 +783,7 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
 
         if (ans == 'Y' || ans == 'y') {
             // Call create_off to generate the off.txt file
-            create_off(user->username, order_chandommm);
+            create_off(user->username, order_chandommm, args->storeIndex);
             for (int i = 0; i < args->user->totalOrder; i++) {
                 struct Product *product = &args->productlist[i];
                 int user_score;
@@ -814,7 +818,7 @@ void check_and_ask_to_buy(struct HandleArgs* args, struct User* user) {
     }
 }
 
-void create_off(const char* username, int order_chandommm) {
+void create_off(const char* username, int order_chandommm, int storeBought) {
     char offPath[MAX_PATH_LEN];
     snprintf(offPath, MAX_PATH_LEN, "%s_off%d.txt", username, order_chandommm);
 
@@ -823,7 +827,7 @@ void create_off(const char* username, int order_chandommm) {
         fprintf(off_file, "*** User OFF Tag *** \n");
         fprintf(off_file, "  Username: %s\n", username);
         fprintf(off_file, "  Order: %d\n", order_chandommm);
-        fprintf(off_file, "  Off(percent): %.2f\n", (order_chandommm + 1) * 0.1);
+        fprintf(off_file, "  Store: %d\n", storeBought);
         fprintf(off_file, "------------------------------------\n");
         fclose(off_file);
     } else {
